@@ -3,6 +3,7 @@ package com.example.lakki_phone
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.bluetooth.BluetoothSocket
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -36,6 +37,7 @@ import com.example.lakki_phone.navigation.NavigationMapScreen
 import com.example.lakki_phone.ui.theme.LakkiphoneTheme
 import org.maplibre.android.MapLibre
 import org.maplibre.android.geometry.LatLng
+import java.util.UUID
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -57,6 +59,7 @@ fun LakkiphoneApp() {
     var currentDestination by remember { mutableStateOf(AppDestinations.HOME) }
     val bluetoothConnector = remember { BluetoothConnector() }
     var connectionState by remember { mutableStateOf(BluetoothConnectionState.DISCONNECTED) }
+    var bluetoothSocket by remember { mutableStateOf<BluetoothSocket?>(null) }
     var selectedDestination by remember { mutableStateOf<LatLng?>(null) }
 
     NavigationSuiteScaffold(
@@ -81,23 +84,36 @@ fun LakkiphoneApp() {
                 AppDestinations.HOME -> DeviceConnectionScreen(
                     connectionState = connectionState,
                     onConnectClick = {
-                        if (!hasBluetoothScanPermission(appContext)) {
+                        if (!hasBluetoothConnectPermission(appContext)) {
                             connectionState = BluetoothConnectionState.DISCONNECTED
                         } else {
                             connectionState = BluetoothConnectionState.CONNECTING
-                            val discoveryStarted = try {
-                                bluetoothConnector.startDiscovery()
+                            val device = try {
+                                bluetoothConnector.getBondedDevices().firstOrNull()
                             } catch (_: SecurityException) {
-                                false
+                                null
                             }
-                            connectionState = if (discoveryStarted) {
-                                BluetoothConnectionState.CONNECTED
-                            } else {
-                                BluetoothConnectionState.DISCONNECTED
+                            val connectionResult = device?.let {
+                                bluetoothConnector.connectToDevice(it, DEFAULT_BLUETOOTH_SERVICE_UUID)
                             }
+                            connectionResult
+                                ?.onSuccess { socket ->
+                                    bluetoothSocket = socket
+                                    connectionState = BluetoothConnectionState.CONNECTED
+                                }
+                                ?.onFailure {
+                                    bluetoothSocket = null
+                                    connectionState = BluetoothConnectionState.DISCONNECTED
+                                }
+                                ?: run {
+                                    bluetoothSocket = null
+                                    connectionState = BluetoothConnectionState.DISCONNECTED
+                                }
                         }
                     },
                     onDisconnectClick = {
+                        bluetoothSocket?.let { bluetoothConnector.disconnect(it) }
+                        bluetoothSocket = null
                         connectionState = BluetoothConnectionState.DISCONNECTED
                     },
                     modifier = Modifier.padding(innerPadding)
@@ -118,12 +134,15 @@ fun LakkiphoneApp() {
 }
 
 
-private fun hasBluetoothScanPermission(context: android.content.Context): Boolean {
+private fun hasBluetoothConnectPermission(context: android.content.Context): Boolean {
     return ContextCompat.checkSelfPermission(
         context,
-        Manifest.permission.BLUETOOTH_SCAN,
+        Manifest.permission.BLUETOOTH_CONNECT,
     ) == PackageManager.PERMISSION_GRANTED
 }
+
+private val DEFAULT_BLUETOOTH_SERVICE_UUID: UUID =
+    UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
 
 enum class BluetoothConnectionState {
     DISCONNECTED,
