@@ -207,6 +207,17 @@ fun LakkiphoneApp() {
                     currentLocation = currentLocation,
                     connectionState = connectionState,
                     onDestinationChanged = { selectedDestination = it },
+                    onSendDestination = { payload ->
+                        bluetoothSocket?.outputStream?.let { output ->
+                            try {
+                                output.write(payload)
+                                output.flush()
+                            } catch (_: Exception) {
+                                bluetoothSocket = null
+                                connectionState = BluetoothConnectionState.DISCONNECTED
+                            }
+                        }
+                    },
                     modifier = Modifier.padding(innerPadding)
                 )
 

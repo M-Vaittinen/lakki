@@ -27,6 +27,7 @@ import com.example.lakki_phone.BluetoothConnectionState
 import com.example.lakki_phone.CURRENT_LOCATION_SOURCE_ID
 import com.example.lakki_phone.createCurrentLocationLayer
 import com.example.lakki_phone.createCurrentLocationSource
+import com.example.lakki_phone.bluetooth.ExternalNavigationProtocol
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
@@ -65,6 +66,7 @@ fun NavigationMapScreen(
     currentLocation: LatLng?,
     connectionState: BluetoothConnectionState,
     onDestinationChanged: (LatLng) -> Unit,
+    onSendDestination: (ByteArray) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -191,15 +193,22 @@ fun NavigationMapScreen(
         )
 
         val isConnected = connectionState == BluetoothConnectionState.CONNECTED
-        val isSendEnabled = isConnected && selectedDestination != null
+        val isSendEnabled = isConnected && selectedDestination != null && currentLocation != null
         val helperText = when {
             !isConnected -> "Connect to the device to send a destination."
             selectedDestination == null -> "Choose a destination on the map to enable sending."
+            currentLocation == null -> "Waiting for current location to send a destination."
             else -> "Ready to send the selected destination."
         }
 
         Button(
-            onClick = { },
+            onClick = {
+                val location = currentLocation ?: return@Button
+                val destination = selectedDestination ?: return@Button
+                val header = computeDestinationHeader(location, destination)
+                val payload = ExternalNavigationProtocol.buildDestinationMessage(header)
+                onSendDestination(payload)
+            },
             enabled = isSendEnabled,
             colors = ButtonDefaults.buttonColors(),
         ) {
