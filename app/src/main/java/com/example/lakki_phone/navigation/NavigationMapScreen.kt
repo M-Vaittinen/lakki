@@ -4,6 +4,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -21,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import com.example.lakki_phone.BluetoothConnectionState
 import com.example.lakki_phone.CURRENT_LOCATION_SOURCE_ID
 import com.example.lakki_phone.createCurrentLocationLayer
 import com.example.lakki_phone.createCurrentLocationSource
@@ -60,6 +63,7 @@ private const val NLS_WMTS_URL_TEMPLATE =
 fun NavigationMapScreen(
     selectedDestination: LatLng?,
     currentLocation: LatLng?,
+    connectionState: BluetoothConnectionState,
     onDestinationChanged: (LatLng) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -164,7 +168,7 @@ fun NavigationMapScreen(
         )
 
         AndroidView(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.weight(1f),
             factory = { mapView },
             update = {
                 it.getMapAsync { map ->
@@ -183,6 +187,31 @@ fun NavigationMapScreen(
                         }
                     }
                 }
+            }
+        )
+
+        val isConnected = connectionState == BluetoothConnectionState.CONNECTED
+        val isSendEnabled = isConnected && selectedDestination != null
+        val helperText = when {
+            !isConnected -> "Connect to the device to send a destination."
+            selectedDestination == null -> "Choose a destination on the map to enable sending."
+            else -> "Ready to send the selected destination."
+        }
+
+        Button(
+            onClick = { },
+            enabled = isSendEnabled,
+            colors = ButtonDefaults.buttonColors(),
+        ) {
+            Text(text = "Send destination")
+        }
+        Text(
+            text = helperText,
+            style = MaterialTheme.typography.bodySmall,
+            color = if (isSendEnabled) {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            } else {
+                MaterialTheme.colorScheme.error
             }
         )
     }

@@ -205,6 +205,7 @@ fun LakkiphoneApp() {
                 AppDestinations.FAVORITES -> NavigationMapScreen(
                     selectedDestination = selectedDestination,
                     currentLocation = currentLocation,
+                    connectionState = connectionState,
                     onDestinationChanged = { selectedDestination = it },
                     modifier = Modifier.padding(innerPadding)
                 )
