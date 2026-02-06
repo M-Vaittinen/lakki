@@ -2,11 +2,13 @@ package com.example.lakki_phone.navigation
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -16,6 +18,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -75,6 +78,9 @@ fun NavigationMapScreen(
     val destinationColor = MaterialTheme.colorScheme.primary.toArgb()
     val currentLocationColor = MaterialTheme.colorScheme.tertiary.toArgb()
     var hasCenteredOnLocation by remember { mutableStateOf(false) }
+    var isTestMode by remember { mutableStateOf(false) }
+    var testPayload by remember { mutableStateOf<ByteArray?>(null) }
+    var testHeader by remember { mutableStateOf<ExternalNavigationProtocol.DestinationHeader?>(null) }
     val mapView = remember(destinationColor, currentLocationColor) {
         MapView(context).apply {
             getMapAsync { map ->
@@ -168,6 +174,40 @@ fun NavigationMapScreen(
                 ?.let { "Current location: %.6f, %.6f".format(it.latitude, it.longitude) }
                 ?: "Current location: none"
         )
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Switch(
+                checked = isTestMode,
+                onCheckedChange = { isEnabled ->
+                    isTestMode = isEnabled
+                    if (!isEnabled) {
+                        testPayload = null
+                        testHeader = null
+                    }
+                }
+            )
+            Text(text = "Test mode (show message instead of sending)")
+        }
+        if (isTestMode) {
+            val header = testHeader
+            val payload = testPayload
+            val testMessage = when {
+                header == null || payload == null ->
+                    "Test mode enabled. Tap the button to compute a destination message."
+                else -> buildString {
+                    append("Last computed destination message")
+                    append("\nDirection: ${header.direction}°")
+                    append("\nDistance: ${header.distanceMeters} m")
+                    append("\nPayload (hex): ${payload.toHexString()}")
+                }
+            }
+            Text(
+                text = testMessage,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
 
         AndroidView(
             modifier = Modifier.weight(1f),
@@ -193,11 +233,14 @@ fun NavigationMapScreen(
         )
 
         val isConnected = connectionState == BluetoothConnectionState.CONNECTED
-        val isSendEnabled = isConnected && selectedDestination != null && currentLocation != null
+        val isSendEnabled = selectedDestination != null &&
+            currentLocation != null &&
+            (isTestMode || isConnected)
         val helperText = when {
-            !isConnected -> "Connect to the device to send a destination."
+            !isTestMode && !isConnected -> "Connect to the device to send a destination."
             selectedDestination == null -> "Choose a destination on the map to enable sending."
             currentLocation == null -> "Waiting for current location to send a destination."
+            isTestMode -> "Test mode is enabled. The destination message will be shown here."
             else -> "Ready to send the selected destination."
         }
 
@@ -207,12 +250,17 @@ fun NavigationMapScreen(
                 val destination = selectedDestination ?: return@Button
                 val header = computeDestinationHeader(location, destination)
                 val payload = ExternalNavigationProtocol.buildDestinationMessage(header)
-                onSendDestination(payload)
+                if (isTestMode) {
+                    testHeader = header
+                    testPayload = payload
+                } else {
+                    onSendDestination(payload)
+                }
             },
             enabled = isSendEnabled,
             colors = ButtonDefaults.buttonColors(),
         ) {
-            Text(text = "Send destination")
+            Text(text = if (isTestMode) "Compute destination" else "Send destination")
         }
         Text(
             text = helperText,
@@ -253,4 +301,8 @@ private fun calculateTriangleDelta(zoom: Double): Double {
     val baseDelta = 0.0015
     val scale = 2.0.coerceAtLeast(Math.pow(2.0, 12.0 - zoom))
     return baseDelta * scale
+}
+
+private fun ByteArray.toHexString(): String {
+    return joinToString(separator = " ") { byte -> "%02X".format(byte) }
 }
