@@ -25,11 +25,12 @@ class BluetoothConnector {
     }
 
     @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
-    @Throws(IOException::class)
-    fun connectToDevice(device: BluetoothDevice, serviceUuid: UUID): BluetoothSocket {
-        val socket = device.createRfcommSocketToServiceRecord(serviceUuid)
-        socket.connect()
-        return socket
+    fun connectToDevice(device: BluetoothDevice, serviceUuid: UUID): Result<BluetoothSocket> {
+        return runCatching {
+            val socket = device.createRfcommSocketToServiceRecord(serviceUuid)
+            socket.connect()
+            socket
+        }
     }
 
     @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
