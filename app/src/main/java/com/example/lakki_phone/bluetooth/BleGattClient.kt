@@ -85,7 +85,7 @@ class BleGattClient(
     }
 
     @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
-    fun writeMessage(payload: ByteArray): Boolean {
+    fun sendMessage(payload: ByteArray): Boolean {
         if (!hasConnectPermission()) {
             return false
         }
