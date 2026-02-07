@@ -32,6 +32,8 @@ object ExternalNavigationProtocol {
         HANDSHAKE(1),
         DESTINATION(2),
         MOVEMENT(3),
+        LOCATION_REQUEST(4),
+        LOCATION_UPDATE(5),
     }
 
     /**
@@ -91,6 +93,11 @@ object ExternalNavigationProtocol {
         val speedCentimetersPerSecond: Int,
     )
 
+    data class LocationHeader(
+        val latitudeE7: Int,
+        val longitudeE7: Int,
+    )
+
     fun buildHandshakeMessage(
         header: HandshakeHeader,
         attributes: List<Attribute> = emptyList(),
@@ -140,6 +147,33 @@ object ExternalNavigationProtocol {
             headerBytes = headerBytes,
             attributes = attributes,
         )
+    }
+
+    fun buildLocationUpdateMessage(
+        header: LocationHeader,
+        attributes: List<Attribute> = emptyList(),
+    ): ByteArray {
+        val headerBytes = ByteBuffer.allocate(Int.SIZE_BYTES * 2)
+            .order(byteOrder)
+            .putInt(header.latitudeE7)
+            .putInt(header.longitudeE7)
+            .array()
+
+        return buildMessage(
+            messageType = MessageType.LOCATION_UPDATE,
+            headerBytes = headerBytes,
+            attributes = attributes,
+        )
+    }
+
+    fun readMessageType(payload: ByteArray): MessageType? {
+        if (payload.size < MESSAGE_TYPE_SIZE_BYTES) {
+            return null
+        }
+        val typeValue = ByteBuffer.wrap(payload)
+            .order(byteOrder)
+            .int
+        return MessageType.entries.firstOrNull { it.value == typeValue }
     }
 
     private fun buildMessage(

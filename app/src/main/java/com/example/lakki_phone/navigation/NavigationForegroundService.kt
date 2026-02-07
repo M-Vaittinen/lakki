@@ -21,6 +21,7 @@ import com.example.lakki_phone.R
 import com.example.lakki_phone.bluetooth.BleGattClient
 import com.example.lakki_phone.bluetooth.BleGattConnectionState
 import com.example.lakki_phone.bluetooth.BluetoothConnector
+import com.example.lakki_phone.bluetooth.ExternalNavigationProtocol
 import com.google.android.gms.location.LocationCallback
 import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationResult
@@ -42,6 +43,7 @@ class NavigationForegroundService : Service() {
         override fun onLocationResult(result: LocationResult) {
             result.lastLocation?.let { location ->
                 currentLocation.value = LatLng(location.latitude, location.longitude)
+                sendLocationUpdateIfRequested()
             }
         }
     }
@@ -64,6 +66,7 @@ class NavigationForegroundService : Service() {
             reconnectHandler.postDelayed(this, RECONNECT_INTERVAL_MS)
         }
     }
+    private var locationRequestPending = false
 
     override fun onCreate() {
         super.onCreate()
@@ -182,15 +185,31 @@ class NavigationForegroundService : Service() {
 
     @SuppressLint("MissingPermission")
     private fun sendDestinationMessage(payload: ByteArray): Boolean {
-        return if (hasBluetoothConnectPermission()) {
-            gattClient.writeMessage(payload)
-        } else {
-            false
-        }
+        return gattClient.sendMessage(payload)
     }
 
     private fun handleIncomingGattMessage(payload: ByteArray) {
         lastReceivedMessage.value = payload
+        val messageType = ExternalNavigationProtocol.readMessageType(payload) ?: return
+        if (messageType == ExternalNavigationProtocol.MessageType.LOCATION_REQUEST) {
+            locationRequestPending = true
+            sendLocationUpdateIfRequested()
+        }
+    }
+
+    private fun sendLocationUpdateIfRequested() {
+        if (!locationRequestPending) {
+            return
+        }
+        val location = currentLocation.value ?: return
+        val header = ExternalNavigationProtocol.LocationHeader(
+            latitudeE7 = (location.latitude * 1e7).toInt(),
+            longitudeE7 = (location.longitude * 1e7).toInt(),
+        )
+        val payload = ExternalNavigationProtocol.buildLocationUpdateMessage(header)
+        if (gattClient.sendMessage(payload)) {
+            locationRequestPending = false
+        }
     }
 
     private fun hasBluetoothConnectPermission(): Boolean {
