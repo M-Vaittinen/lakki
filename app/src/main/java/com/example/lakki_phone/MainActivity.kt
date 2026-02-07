@@ -22,8 +22,8 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -31,15 +31,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.tooling.preview.PreviewScreenSizes
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
 import com.example.lakki_phone.navigation.NavigationMapScreen
 import com.example.lakki_phone.navigation.NavigationForegroundService
+import com.example.lakki_phone.navigation.NavigationPreferences
 import com.example.lakki_phone.ui.theme.LakkiphoneTheme
 import org.maplibre.android.MapLibre
 import org.maplibre.android.geometry.LatLng
@@ -69,18 +67,25 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun LakkiphoneApp() {
     val appContext = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
     var currentDestination by remember { mutableStateOf(AppDestinations.HOME) }
     var selectedDestination by remember { mutableStateOf<LatLng?>(null) }
     val currentLocation by NavigationForegroundService.currentLocation
     val connectionState by NavigationForegroundService.connectionState
+    val isServiceRunning by NavigationForegroundService.isRunning
     var hasLocationPermission by remember { mutableStateOf(false) }
+    var hasRequestedLocationPermission by remember { mutableStateOf(false) }
+    val navigationEnabledFlow = remember(appContext) {
+        NavigationPreferences.navigationEnabledFlow(appContext)
+    }
+    val navigationEnabled by navigationEnabledFlow.collectAsState(
+        initial = NavigationPreferences.isNavigationEnabled(appContext),
+    )
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
         hasLocationPermission = permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
             permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
-        if (hasLocationPermission) {
+        if (hasLocationPermission && navigationEnabled) {
             NavigationForegroundService.start(appContext)
         }
     }
@@ -89,31 +94,29 @@ fun LakkiphoneApp() {
         hasLocationPermission = hasLocationPermission(appContext)
     }
 
-    DisposableEffect(lifecycleOwner, hasLocationPermission) {
-        val observer = LifecycleEventObserver { _, event ->
-            when (event) {
-                Lifecycle.Event.ON_START -> {
-                    if (hasLocationPermission) {
-                        NavigationForegroundService.start(appContext)
-                    } else {
-                        permissionLauncher.launch(
-                            arrayOf(
-                                Manifest.permission.ACCESS_FINE_LOCATION,
-                                Manifest.permission.ACCESS_COARSE_LOCATION,
-                            )
-                        )
-                    }
-                }
-                Lifecycle.Event.ON_STOP -> {
-                    NavigationForegroundService.stop(appContext)
-                }
-                else -> Unit
-            }
+    LaunchedEffect(navigationEnabled) {
+        if (!navigationEnabled) {
+            hasRequestedLocationPermission = false
         }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
-            NavigationForegroundService.stop(appContext)
+    }
+
+    LaunchedEffect(navigationEnabled, hasLocationPermission, hasRequestedLocationPermission) {
+        when {
+            navigationEnabled && hasLocationPermission -> {
+                NavigationForegroundService.start(appContext)
+            }
+            navigationEnabled && !hasLocationPermission && !hasRequestedLocationPermission -> {
+                hasRequestedLocationPermission = true
+                permissionLauncher.launch(
+                    arrayOf(
+                        Manifest.permission.ACCESS_FINE_LOCATION,
+                        Manifest.permission.ACCESS_COARSE_LOCATION,
+                    )
+                )
+            }
+            !navigationEnabled -> {
+                NavigationForegroundService.stop(appContext)
+            }
         }
     }
 
@@ -159,6 +162,11 @@ fun LakkiphoneApp() {
                     selectedDestination = selectedDestination,
                     currentLocation = currentLocation,
                     connectionState = connectionState,
+                    navigationEnabled = navigationEnabled,
+                    isServiceRunning = isServiceRunning,
+                    onNavigationModeToggle = { isEnabled ->
+                        NavigationPreferences.setNavigationEnabled(appContext, isEnabled)
+                    },
                     onDestinationChanged = { selectedDestination = it },
                     onSendDestinationMessage = { payload ->
                         val writeSuccess = if (hasBluetoothConnectPermission(appContext)) {
