@@ -70,20 +70,28 @@ fun NavigationMapScreen(
     connectionState: BluetoothConnectionState,
     navigationEnabled: Boolean,
     isServiceRunning: Boolean,
+    capDirectionDegrees: Int?,
     onNavigationModeToggle: (Boolean) -> Unit,
     onDestinationChanged: (LatLng) -> Unit,
     onSendDestinationMessage: (ByteArray) -> Unit,
+    onCapDirectionRequestStart: () -> Unit,
+    onCapDirectionRequestStop: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
     val context = LocalContext.current
     val currentLocationState = rememberUpdatedState(currentLocation)
+    val capDirectionState = rememberUpdatedState(capDirectionDegrees)
     val destinationColor = MaterialTheme.colorScheme.primary.toArgb()
     val currentLocationColor = MaterialTheme.colorScheme.tertiary.toArgb()
     var hasCenteredOnLocation by remember { mutableStateOf(false) }
     var isTestMode by remember { mutableStateOf(false) }
     var testPayload by remember { mutableStateOf<ByteArray?>(null) }
     var testHeader by remember { mutableStateOf<ExternalNavigationProtocol.DestinationHeader?>(null) }
+    val isConnected = connectionState == BluetoothConnectionState.CONNECTED
+    val shouldRequestCapDirection = navigationEnabled && isConnected
+    val shouldRequestCapDirectionState = rememberUpdatedState(shouldRequestCapDirection)
+    val indicatorDirection = if (shouldRequestCapDirection) capDirectionDegrees else null
     val mapView = remember(destinationColor, currentLocationColor) {
         MapView(context).apply {
             getMapAsync { map ->
@@ -110,7 +118,12 @@ fun NavigationMapScreen(
                         updateDestinationSource(style, latLng)
                     }
                     currentLocation?.let { latLng ->
-                        updateCurrentLocationSource(style, latLng, map.cameraPosition.zoom)
+                        updateCurrentLocationSource(
+                            style,
+                            latLng,
+                            map.cameraPosition.zoom,
+                            directionDegrees = indicatorDirection,
+                        )
                     }
                 }
 
@@ -121,9 +134,19 @@ fun NavigationMapScreen(
 
                 map.addOnCameraMoveListener {
                     val latestLocation = currentLocationState.value
+                    val latestDirection = capDirectionState.value
                     val style = map.style
                     if (latestLocation != null && style != null) {
-                        updateCurrentLocationSource(style, latestLocation, map.cameraPosition.zoom)
+                        updateCurrentLocationSource(
+                            style,
+                            latestLocation,
+                            map.cameraPosition.zoom,
+                            directionDegrees = if (shouldRequestCapDirectionState.value) {
+                                latestDirection
+                            } else {
+                                null
+                            },
+                        )
                     }
                 }
 
@@ -153,6 +176,19 @@ fun NavigationMapScreen(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
+    DisposableEffect(shouldRequestCapDirection) {
+        if (shouldRequestCapDirection) {
+            onCapDirectionRequestStart()
+        } else {
+            onCapDirectionRequestStop()
+        }
+        onDispose {
+            if (shouldRequestCapDirection) {
+                onCapDirectionRequestStop()
+            }
         }
     }
 
@@ -240,7 +276,12 @@ fun NavigationMapScreen(
                             updateDestinationSource(style, selectedDestination)
                         }
                         if (currentLocation != null) {
-                            updateCurrentLocationSource(style, currentLocation, map.cameraPosition.zoom)
+                            updateCurrentLocationSource(
+                                style,
+                                currentLocation,
+                                map.cameraPosition.zoom,
+                                directionDegrees = indicatorDirection,
+                            )
                             if (!hasCenteredOnLocation) {
                                 map.animateCamera(
                                     CameraUpdateFactory.newLatLngZoom(currentLocation, 12.0),
@@ -253,7 +294,6 @@ fun NavigationMapScreen(
             }
         )
 
-        val isConnected = connectionState == BluetoothConnectionState.CONNECTED
         val isSendEnabled = selectedDestination != null &&
             currentLocation != null &&
             (isTestMode || isConnected)
@@ -301,15 +341,36 @@ private fun updateDestinationSource(style: Style, destination: LatLng) {
     )
 }
 
-private fun updateCurrentLocationSource(style: Style, currentLocation: LatLng, zoom: Double) {
+private fun updateCurrentLocationSource(
+    style: Style,
+    currentLocation: LatLng,
+    zoom: Double,
+    directionDegrees: Int?,
+) {
     val delta = calculateTriangleDelta(zoom)
+    val directionRadians = Math.toRadians((directionDegrees ?: 0).toDouble())
+    val cosAngle = kotlin.math.cos(directionRadians)
+    val sinAngle = kotlin.math.sin(directionRadians)
+    val triangleOffsets = listOf(
+        0.0 to delta,
+        -delta to -delta,
+        delta to -delta,
+        0.0 to delta,
+    ).map { (x, y) ->
+        val rotatedX = x * cosAngle - y * sinAngle
+        val rotatedY = x * sinAngle + y * cosAngle
+        Point.fromLngLat(
+            currentLocation.longitude + rotatedX,
+            currentLocation.latitude + rotatedY,
+        )
+    }
     val triangle = Polygon.fromLngLats(
         listOf(
             listOf(
-                Point.fromLngLat(currentLocation.longitude, currentLocation.latitude + delta),
-                Point.fromLngLat(currentLocation.longitude - delta, currentLocation.latitude - delta),
-                Point.fromLngLat(currentLocation.longitude + delta, currentLocation.latitude - delta),
-                Point.fromLngLat(currentLocation.longitude, currentLocation.latitude + delta),
+                triangleOffsets[0],
+                triangleOffsets[1],
+                triangleOffsets[2],
+                triangleOffsets[3],
             )
         )
     )

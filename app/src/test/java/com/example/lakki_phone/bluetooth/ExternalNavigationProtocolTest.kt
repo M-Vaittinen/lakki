@@ -54,6 +54,23 @@ class ExternalNavigationProtocolTest {
     }
 
     @Test
+    fun capDirectionMessageUsesFixedHeader() {
+        val encoded = ExternalNavigationProtocol.buildCapDirectionMessage(
+            ExternalNavigationProtocol.CapDirectionHeader(
+                direction = 135,
+                reserved = 0,
+            ),
+        )
+
+        val buffer = ByteBuffer.wrap(encoded).order(ExternalNavigationProtocol.byteOrder)
+        assertEquals(ExternalNavigationProtocol.MessageType.CAP_DIRECTION.value, buffer.int)
+        assertEquals(encoded.size, buffer.int)
+        assertEquals(135, buffer.int)
+        assertEquals(0, buffer.int)
+        assertEquals(0, buffer.remaining())
+    }
+
+    @Test
     fun attributeEqualityUsesPayloadContentInsteadOfArrayReference() {
         val left = ExternalNavigationProtocol.Attribute(
             type = 7,

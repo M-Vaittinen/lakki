@@ -55,6 +55,9 @@ class NavigationForegroundService : Service() {
                 BleGattConnectionState.CONNECTING -> BluetoothConnectionState.CONNECTING
                 BleGattConnectionState.DISCONNECTED -> BluetoothConnectionState.DISCONNECTED
             }
+            if (state == BleGattConnectionState.DISCONNECTED) {
+                capDirection.value = null
+            }
         },
         onMessageReceived = { payload ->
             handleIncomingGattMessage(payload)
@@ -188,12 +191,23 @@ class NavigationForegroundService : Service() {
         return gattClient.sendMessage(payload)
     }
 
+    private fun sendCapDirectionRequestMessage(payload: ByteArray): Boolean {
+        return gattClient.sendMessage(payload)
+    }
+
     private fun handleIncomingGattMessage(payload: ByteArray) {
         lastReceivedMessage.value = payload
         val messageType = ExternalNavigationProtocol.readMessageType(payload) ?: return
-        if (messageType == ExternalNavigationProtocol.MessageType.DESTINATION_REQUEST) {
-            destinationRequestPending = true
-            sendDestinationUpdateIfRequested()
+        when (messageType) {
+            ExternalNavigationProtocol.MessageType.DESTINATION_REQUEST -> {
+                destinationRequestPending = true
+                sendDestinationUpdateIfRequested()
+            }
+            ExternalNavigationProtocol.MessageType.CAP_DIRECTION -> {
+                val header = ExternalNavigationProtocol.readCapDirectionHeader(payload) ?: return
+                capDirection.value = header.direction
+            }
+            else -> Unit
         }
     }
 
@@ -268,6 +282,17 @@ class NavigationForegroundService : Service() {
             return activeService?.sendDestinationMessage(payload) ?: false
         }
 
+        fun sendCapDirectionRequestStart(): Boolean {
+            val payload = ExternalNavigationProtocol.buildCapDirectionRequestStartMessage()
+            return activeService?.sendCapDirectionRequestMessage(payload) ?: false
+        }
+
+        fun sendCapDirectionRequestStop(): Boolean {
+            val payload = ExternalNavigationProtocol.buildCapDirectionRequestStopMessage()
+            return activeService?.sendCapDirectionRequestMessage(payload) ?: false
+        }
+
         val lastReceivedMessage = mutableStateOf<ByteArray?>(null)
+        val capDirection = mutableStateOf<Int?>(null)
     }
 }

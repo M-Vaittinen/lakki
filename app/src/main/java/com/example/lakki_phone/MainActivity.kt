@@ -72,6 +72,7 @@ fun LakkiphoneApp() {
     val currentLocation by NavigationForegroundService.currentLocation
     val connectionState by NavigationForegroundService.connectionState
     val isServiceRunning by NavigationForegroundService.isRunning
+    val capDirection by NavigationForegroundService.capDirection
     var hasLocationPermission by remember { mutableStateOf(false) }
     var hasRequestedLocationPermission by remember { mutableStateOf(false) }
     val navigationEnabledFlow = remember(appContext) {
@@ -164,6 +165,7 @@ fun LakkiphoneApp() {
                     connectionState = connectionState,
                     navigationEnabled = navigationEnabled,
                     isServiceRunning = isServiceRunning,
+                    capDirectionDegrees = capDirection,
                     onNavigationModeToggle = { isEnabled ->
                         NavigationPreferences.setNavigationEnabled(appContext, isEnabled)
                     },
@@ -180,6 +182,22 @@ fun LakkiphoneApp() {
                         if (!writeSuccess) {
                             NavigationForegroundService.connectionState.value =
                                 BluetoothConnectionState.DISCONNECTED
+                        }
+                    },
+                    onCapDirectionRequestStart = {
+                        val writeSuccess = if (hasBluetoothConnectPermission(appContext)) {
+                            NavigationForegroundService.sendCapDirectionRequestStart()
+                        } else {
+                            false
+                        }
+                        if (!writeSuccess) {
+                            NavigationForegroundService.connectionState.value =
+                                BluetoothConnectionState.DISCONNECTED
+                        }
+                    },
+                    onCapDirectionRequestStop = {
+                        if (hasBluetoothConnectPermission(appContext)) {
+                            NavigationForegroundService.sendCapDirectionRequestStop()
                         }
                     },
                     modifier = Modifier.padding(innerPadding)

@@ -33,6 +33,9 @@ object ExternalNavigationProtocol {
         DESTINATION(2),
         MOVEMENT(3),
         DESTINATION_REQUEST(4),
+        CAP_DIRECTION(5),
+        CAP_DIRECTION_REQUEST_START(6),
+        CAP_DIRECTION_REQUEST_STOP(7),
     }
 
     /**
@@ -92,6 +95,16 @@ object ExternalNavigationProtocol {
         val speedCentimetersPerSecond: Int,
     )
 
+    data class CapDirectionHeader(
+        val direction: Int,
+        val reserved: Int = 0,
+    )
+
+    data class CapDirectionRequestHeader(
+        val reserved0: Int = 0,
+        val reserved1: Int = 0,
+    )
+
     fun buildHandshakeMessage(
         header: HandshakeHeader,
         attributes: List<Attribute> = emptyList(),
@@ -143,6 +156,57 @@ object ExternalNavigationProtocol {
         )
     }
 
+    fun buildCapDirectionMessage(
+        header: CapDirectionHeader,
+        attributes: List<Attribute> = emptyList(),
+    ): ByteArray {
+        val headerBytes = ByteBuffer.allocate(Int.SIZE_BYTES * 2)
+            .order(byteOrder)
+            .putInt(header.direction)
+            .putInt(header.reserved)
+            .array()
+
+        return buildMessage(
+            messageType = MessageType.CAP_DIRECTION,
+            headerBytes = headerBytes,
+            attributes = attributes,
+        )
+    }
+
+    fun buildCapDirectionRequestStartMessage(
+        header: CapDirectionRequestHeader = CapDirectionRequestHeader(),
+        attributes: List<Attribute> = emptyList(),
+    ): ByteArray {
+        val headerBytes = ByteBuffer.allocate(Int.SIZE_BYTES * 2)
+            .order(byteOrder)
+            .putInt(header.reserved0)
+            .putInt(header.reserved1)
+            .array()
+
+        return buildMessage(
+            messageType = MessageType.CAP_DIRECTION_REQUEST_START,
+            headerBytes = headerBytes,
+            attributes = attributes,
+        )
+    }
+
+    fun buildCapDirectionRequestStopMessage(
+        header: CapDirectionRequestHeader = CapDirectionRequestHeader(),
+        attributes: List<Attribute> = emptyList(),
+    ): ByteArray {
+        val headerBytes = ByteBuffer.allocate(Int.SIZE_BYTES * 2)
+            .order(byteOrder)
+            .putInt(header.reserved0)
+            .putInt(header.reserved1)
+            .array()
+
+        return buildMessage(
+            messageType = MessageType.CAP_DIRECTION_REQUEST_STOP,
+            headerBytes = headerBytes,
+            attributes = attributes,
+        )
+    }
+
     fun readMessageType(payload: ByteArray): MessageType? {
         if (payload.size < MESSAGE_TYPE_SIZE_BYTES) {
             return null
@@ -151,6 +215,20 @@ object ExternalNavigationProtocol {
             .order(byteOrder)
             .int
         return MessageType.entries.firstOrNull { it.value == typeValue }
+    }
+
+    fun readCapDirectionHeader(payload: ByteArray): CapDirectionHeader? {
+        val headerSize = MESSAGE_TYPE_SIZE_BYTES + MESSAGE_LENGTH_SIZE_BYTES + Int.SIZE_BYTES * 2
+        if (payload.size < headerSize) {
+            return null
+        }
+        val buffer = ByteBuffer.wrap(payload)
+            .order(byteOrder)
+        buffer.position(MESSAGE_TYPE_SIZE_BYTES + MESSAGE_LENGTH_SIZE_BYTES)
+        return CapDirectionHeader(
+            direction = buffer.int,
+            reserved = buffer.int,
+        )
     }
 
     private fun buildMessage(
