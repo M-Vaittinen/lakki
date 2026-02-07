@@ -68,6 +68,9 @@ fun NavigationMapScreen(
     selectedDestination: LatLng?,
     currentLocation: LatLng?,
     connectionState: BluetoothConnectionState,
+    navigationEnabled: Boolean,
+    isServiceRunning: Boolean,
+    onNavigationModeToggle: (Boolean) -> Unit,
     onDestinationChanged: (LatLng) -> Unit,
     onSendDestinationMessage: (ByteArray) -> Unit,
     modifier: Modifier = Modifier,
@@ -173,6 +176,24 @@ fun NavigationMapScreen(
             text = currentLocation
                 ?.let { "Current location: %.6f, %.6f".format(it.latitude, it.longitude) }
                 ?: "Current location: none"
+        )
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Switch(
+                checked = navigationEnabled,
+                onCheckedChange = onNavigationModeToggle,
+            )
+            Text(text = "Navigation mode")
+        }
+        Text(
+            text = if (isServiceRunning) {
+                "Navigation service is running."
+            } else {
+                "Navigation service is stopped."
+            },
+            style = MaterialTheme.typography.bodySmall,
         )
         Row(
             horizontalArrangement = Arrangement.spacedBy(8.dp),

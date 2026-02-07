@@ -71,6 +71,7 @@ class NavigationForegroundService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        isRunning.value = true
         startForegroundService()
         startLocationUpdates()
         startReconnectLoop()
@@ -81,6 +82,7 @@ class NavigationForegroundService : Service() {
         stopLocationUpdates()
         stopReconnectLoop()
         disconnectGatt()
+        isRunning.value = false
         activeService = null
         super.onDestroy()
     }
@@ -218,6 +220,7 @@ class NavigationForegroundService : Service() {
 
         val currentLocation = mutableStateOf<LatLng?>(null)
         val connectionState = mutableStateOf(BluetoothConnectionState.DISCONNECTED)
+        val isRunning = mutableStateOf(false)
 
         @Volatile
         private var activeService: NavigationForegroundService? = null
