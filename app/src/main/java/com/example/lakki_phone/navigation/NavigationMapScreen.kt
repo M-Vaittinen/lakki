@@ -352,10 +352,10 @@ private fun updateCurrentLocationSource(
     val cosAngle = kotlin.math.cos(directionRadians)
     val sinAngle = kotlin.math.sin(directionRadians)
     val triangleOffsets = listOf(
-        0.0 to delta,
-        -delta to -delta,
-        delta to -delta,
-        0.0 to delta,
+        0.0 to 0.0,
+        -delta to -2 * delta,
+        delta to -2 * delta,
+        0.0 to 0.0,
     ).map { (x, y) ->
         val rotatedX = x * cosAngle - y * sinAngle
         val rotatedY = x * sinAngle + y * cosAngle
