@@ -3,7 +3,6 @@ package com.example.lakki_phone
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Bundle
-import android.os.Looper
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -39,17 +38,9 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
-import com.example.lakki_phone.bluetooth.BleGattClient
-import com.example.lakki_phone.bluetooth.BleGattConnectionState
-import com.example.lakki_phone.bluetooth.BluetoothConnector
 import com.example.lakki_phone.navigation.NavigationMapScreen
+import com.example.lakki_phone.navigation.NavigationForegroundService
 import com.example.lakki_phone.ui.theme.LakkiphoneTheme
-import com.google.android.gms.location.FusedLocationProviderClient
-import com.google.android.gms.location.LocationCallback
-import com.google.android.gms.location.LocationRequest
-import com.google.android.gms.location.LocationResult
-import com.google.android.gms.location.LocationServices
-import com.google.android.gms.location.Priority
 import org.maplibre.android.MapLibre
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.style.layers.FillLayer
@@ -80,47 +71,17 @@ fun LakkiphoneApp() {
     val appContext = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     var currentDestination by remember { mutableStateOf(AppDestinations.HOME) }
-    val bluetoothConnector = remember { BluetoothConnector() }
-    var connectionState by remember { mutableStateOf(BluetoothConnectionState.DISCONNECTED) }
-    val gattClient = remember {
-        BleGattClient(
-            context = appContext,
-            onConnectionStateChanged = { state ->
-                connectionState = when (state) {
-                    BleGattConnectionState.CONNECTED -> BluetoothConnectionState.CONNECTED
-                    BleGattConnectionState.CONNECTING -> BluetoothConnectionState.CONNECTING
-                    BleGattConnectionState.DISCONNECTED -> BluetoothConnectionState.DISCONNECTED
-                }
-            },
-        )
-    }
     var selectedDestination by remember { mutableStateOf<LatLng?>(null) }
-    var currentLocation by remember { mutableStateOf<LatLng?>(null) }
+    val currentLocation by NavigationForegroundService.currentLocation
+    val connectionState by NavigationForegroundService.connectionState
     var hasLocationPermission by remember { mutableStateOf(false) }
-    val fusedLocationClient = remember {
-        LocationServices.getFusedLocationProviderClient(appContext)
-    }
-    val locationRequest = remember {
-        LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 5_000L)
-            .setMinUpdateIntervalMillis(2_000L)
-            .build()
-    }
-    val locationCallback = remember {
-        object : LocationCallback() {
-            override fun onLocationResult(result: LocationResult) {
-                result.lastLocation?.let { location ->
-                    currentLocation = LatLng(location.latitude, location.longitude)
-                }
-            }
-        }
-    }
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
         hasLocationPermission = permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
             permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
         if (hasLocationPermission) {
-            startLocationUpdates(fusedLocationClient, locationRequest, locationCallback)
+            NavigationForegroundService.start(appContext)
         }
     }
 
@@ -128,20 +89,12 @@ fun LakkiphoneApp() {
         hasLocationPermission = hasLocationPermission(appContext)
     }
 
-    DisposableEffect(Unit) {
-        onDispose {
-            if (hasBluetoothConnectPermission(appContext)) {
-                gattClient.disconnect()
-            }
-        }
-    }
-
     DisposableEffect(lifecycleOwner, hasLocationPermission) {
         val observer = LifecycleEventObserver { _, event ->
             when (event) {
                 Lifecycle.Event.ON_START -> {
                     if (hasLocationPermission) {
-                        startLocationUpdates(fusedLocationClient, locationRequest, locationCallback)
+                        NavigationForegroundService.start(appContext)
                     } else {
                         permissionLauncher.launch(
                             arrayOf(
@@ -152,7 +105,7 @@ fun LakkiphoneApp() {
                     }
                 }
                 Lifecycle.Event.ON_STOP -> {
-                    fusedLocationClient.removeLocationUpdates(locationCallback)
+                    NavigationForegroundService.stop(appContext)
                 }
                 else -> Unit
             }
@@ -160,7 +113,7 @@ fun LakkiphoneApp() {
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose {
             lifecycleOwner.lifecycle.removeObserver(observer)
-            fusedLocationClient.removeLocationUpdates(locationCallback)
+            NavigationForegroundService.stop(appContext)
         }
     }
 
@@ -187,20 +140,16 @@ fun LakkiphoneApp() {
                     connectionState = connectionState,
                     onConnectClick = {
                         if (!hasBluetoothConnectPermission(appContext)) {
-                            connectionState = BluetoothConnectionState.DISCONNECTED
+                            NavigationForegroundService.connectionState.value =
+                                BluetoothConnectionState.DISCONNECTED
                         } else {
-                            val device = try {
-                                bluetoothConnector.getBondedDevices().firstOrNull()
-                            } catch (_: SecurityException) {
-                                null
-                            }
-                            device?.let { gattClient.connect(it) }
-                                ?: run { connectionState = BluetoothConnectionState.DISCONNECTED }
+                            NavigationForegroundService.start(appContext)
+                            NavigationForegroundService.connectToBondedDevice()
                         }
                     },
                     onDisconnectClick = {
                         if (hasBluetoothConnectPermission(appContext)) {
-                            gattClient.disconnect()
+                            NavigationForegroundService.disconnectGatt()
                         }
                     },
                     modifier = Modifier.padding(innerPadding)
@@ -213,12 +162,13 @@ fun LakkiphoneApp() {
                     onDestinationChanged = { selectedDestination = it },
                     onSendDestination = { payload ->
                         val writeSuccess = if (hasBluetoothConnectPermission(appContext)) {
-                            gattClient.write(payload)
+                            NavigationForegroundService.sendDestination(payload)
                         } else {
                             false
                         }
                         if (!writeSuccess) {
-                            connectionState = BluetoothConnectionState.DISCONNECTED
+                            NavigationForegroundService.connectionState.value =
+                                BluetoothConnectionState.DISCONNECTED
                         }
                     },
                     modifier = Modifier.padding(innerPadding)
@@ -250,14 +200,6 @@ private fun hasLocationPermission(context: android.content.Context): Boolean {
         Manifest.permission.ACCESS_COARSE_LOCATION,
     ) == PackageManager.PERMISSION_GRANTED
     return finePermission || coarsePermission
-}
-
-private fun startLocationUpdates(
-    client: FusedLocationProviderClient,
-    request: LocationRequest,
-    callback: LocationCallback,
-) {
-    client.requestLocationUpdates(request, callback, Looper.getMainLooper())
 }
 
 fun createCurrentLocationSource(): GeoJsonSource = GeoJsonSource(CURRENT_LOCATION_SOURCE_ID)
