@@ -4,7 +4,6 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.os.Looper
-import android.bluetooth.BluetoothSocket
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -40,6 +39,8 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import com.example.lakki_phone.bluetooth.BleGattClient
+import com.example.lakki_phone.bluetooth.BleGattConnectionState
 import com.example.lakki_phone.bluetooth.BluetoothConnector
 import com.example.lakki_phone.navigation.NavigationMapScreen
 import com.example.lakki_phone.ui.theme.LakkiphoneTheme
@@ -56,7 +57,6 @@ import org.maplibre.android.style.layers.PropertyFactory.fillColor
 import org.maplibre.android.style.layers.PropertyFactory.fillOpacity
 import org.maplibre.android.style.layers.PropertyFactory.fillOutlineColor
 import org.maplibre.android.style.sources.GeoJsonSource
-import java.util.UUID
 
 const val CURRENT_LOCATION_SOURCE_ID = "current-location-source"
 const val CURRENT_LOCATION_LAYER_ID = "current-location-layer"
@@ -82,7 +82,18 @@ fun LakkiphoneApp() {
     var currentDestination by remember { mutableStateOf(AppDestinations.HOME) }
     val bluetoothConnector = remember { BluetoothConnector() }
     var connectionState by remember { mutableStateOf(BluetoothConnectionState.DISCONNECTED) }
-    var bluetoothSocket by remember { mutableStateOf<BluetoothSocket?>(null) }
+    val gattClient = remember {
+        BleGattClient(
+            context = appContext,
+            onConnectionStateChanged = { state ->
+                connectionState = when (state) {
+                    BleGattConnectionState.CONNECTED -> BluetoothConnectionState.CONNECTED
+                    BleGattConnectionState.CONNECTING -> BluetoothConnectionState.CONNECTING
+                    BleGattConnectionState.DISCONNECTED -> BluetoothConnectionState.DISCONNECTED
+                }
+            },
+        )
+    }
     var selectedDestination by remember { mutableStateOf<LatLng?>(null) }
     var currentLocation by remember { mutableStateOf<LatLng?>(null) }
     var hasLocationPermission by remember { mutableStateOf(false) }
@@ -115,6 +126,14 @@ fun LakkiphoneApp() {
 
     LaunchedEffect(Unit) {
         hasLocationPermission = hasLocationPermission(appContext)
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            if (hasBluetoothConnectPermission(appContext)) {
+                gattClient.disconnect()
+            }
+        }
     }
 
     DisposableEffect(lifecycleOwner, hasLocationPermission) {
@@ -170,34 +189,19 @@ fun LakkiphoneApp() {
                         if (!hasBluetoothConnectPermission(appContext)) {
                             connectionState = BluetoothConnectionState.DISCONNECTED
                         } else {
-                            connectionState = BluetoothConnectionState.CONNECTING
                             val device = try {
                                 bluetoothConnector.getBondedDevices().firstOrNull()
                             } catch (_: SecurityException) {
                                 null
                             }
-                            val connectionResult = device?.let {
-                                bluetoothConnector.connectToDevice(it, DEFAULT_BLUETOOTH_SERVICE_UUID)
-                            }
-                            connectionResult
-                                ?.onSuccess { socket ->
-                                    bluetoothSocket = socket
-                                    connectionState = BluetoothConnectionState.CONNECTED
-                                }
-                                ?.onFailure {
-                                    bluetoothSocket = null
-                                    connectionState = BluetoothConnectionState.DISCONNECTED
-                                }
-                                ?: run {
-                                    bluetoothSocket = null
-                                    connectionState = BluetoothConnectionState.DISCONNECTED
-                                }
+                            device?.let { gattClient.connect(it) }
+                                ?: run { connectionState = BluetoothConnectionState.DISCONNECTED }
                         }
                     },
                     onDisconnectClick = {
-                        bluetoothSocket?.let { bluetoothConnector.disconnect(it) }
-                        bluetoothSocket = null
-                        connectionState = BluetoothConnectionState.DISCONNECTED
+                        if (hasBluetoothConnectPermission(appContext)) {
+                            gattClient.disconnect()
+                        }
                     },
                     modifier = Modifier.padding(innerPadding)
                 )
@@ -208,14 +212,13 @@ fun LakkiphoneApp() {
                     connectionState = connectionState,
                     onDestinationChanged = { selectedDestination = it },
                     onSendDestination = { payload ->
-                        bluetoothSocket?.outputStream?.let { output ->
-                            try {
-                                output.write(payload)
-                                output.flush()
-                            } catch (_: Exception) {
-                                bluetoothSocket = null
-                                connectionState = BluetoothConnectionState.DISCONNECTED
-                            }
+                        val writeSuccess = if (hasBluetoothConnectPermission(appContext)) {
+                            gattClient.write(payload)
+                        } else {
+                            false
+                        }
+                        if (!writeSuccess) {
+                            connectionState = BluetoothConnectionState.DISCONNECTED
                         }
                     },
                     modifier = Modifier.padding(innerPadding)
@@ -265,9 +268,6 @@ fun createCurrentLocationLayer(color: Int): FillLayer =
         fillOpacity(0.9f),
         fillOutlineColor(color),
     )
-
-private val DEFAULT_BLUETOOTH_SERVICE_UUID: UUID =
-    UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
 
 enum class BluetoothConnectionState {
     DISCONNECTED,
