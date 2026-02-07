@@ -65,8 +65,7 @@ All multi-byte integers are **big-endian**.
 | 1       | HANDSHAKE           | cap ↔ phone       | protocol_version (u32), capabilities (u32) |
 | 2       | DESTINATION         | phone → cap       | direction (u32), distance_meters (u32)     |
 | 3       | MOVEMENT            | phone → cap       | direction (u32), speed_cm_s (u32)          |
-| 4       | LOCATION_REQUEST    | cap → phone       | reserved0 (u32), reserved1 (u32)           |
-| 5       | LOCATION_UPDATE     | phone → cap       | latitude_e7 (u32), longitude_e7 (u32)      |
+| 4       | DESTINATION_REQUEST | cap → phone       | reserved0 (u32), reserved1 (u32)           |
 
 ### Header field definitions
 
@@ -76,15 +75,11 @@ All multi-byte integers are **big-endian**.
 * **distance_meters**: Distance to destination in meters.
 * **speed_cm_s**: Speed in centimeters per second.
 * **reserved0/reserved1**: Must be zero for now; reserved for future use in
-  `LOCATION_REQUEST` messages.
-* **latitude_e7 / longitude_e7**: Latitude and longitude in degrees × 1e7 (WGS84), encoded as
-  unsigned 32-bit integers.
+  `DESTINATION_REQUEST` messages.
 
 ## Typical message flow
 
 1. **Handshake**: Cap and phone exchange `HANDSHAKE` messages after BLE connection.
 2. **Navigation updates**: Phone periodically sends `DESTINATION` or `MOVEMENT` messages.
-3. **Location request**: Cap sends `LOCATION_REQUEST` to ask the phone for its current location.
-4. **Location update**: Phone responds with `LOCATION_UPDATE` containing `latitude_e7` and
-   `longitude_e7`.
-
+3. **Destination request**: Cap sends `DESTINATION_REQUEST` to ask the phone to recompute the
+   latest direction and distance based on its current location and stored destination.

@@ -43,7 +43,7 @@ class NavigationForegroundService : Service() {
         override fun onLocationResult(result: LocationResult) {
             result.lastLocation?.let { location ->
                 currentLocation.value = LatLng(location.latitude, location.longitude)
-                sendLocationUpdateIfRequested()
+                sendDestinationUpdateIfRequested()
             }
         }
     }
@@ -66,7 +66,7 @@ class NavigationForegroundService : Service() {
             reconnectHandler.postDelayed(this, RECONNECT_INTERVAL_MS)
         }
     }
-    private var locationRequestPending = false
+    private var destinationRequestPending = false
 
     override fun onCreate() {
         super.onCreate()
@@ -191,24 +191,22 @@ class NavigationForegroundService : Service() {
     private fun handleIncomingGattMessage(payload: ByteArray) {
         lastReceivedMessage.value = payload
         val messageType = ExternalNavigationProtocol.readMessageType(payload) ?: return
-        if (messageType == ExternalNavigationProtocol.MessageType.LOCATION_REQUEST) {
-            locationRequestPending = true
-            sendLocationUpdateIfRequested()
+        if (messageType == ExternalNavigationProtocol.MessageType.DESTINATION_REQUEST) {
+            destinationRequestPending = true
+            sendDestinationUpdateIfRequested()
         }
     }
 
-    private fun sendLocationUpdateIfRequested() {
-        if (!locationRequestPending) {
+    private fun sendDestinationUpdateIfRequested() {
+        if (!destinationRequestPending) {
             return
         }
         val location = currentLocation.value ?: return
-        val header = ExternalNavigationProtocol.LocationHeader(
-            latitudeE7 = (location.latitude * 1e7).toInt(),
-            longitudeE7 = (location.longitude * 1e7).toInt(),
-        )
-        val payload = ExternalNavigationProtocol.buildLocationUpdateMessage(header)
+        val destination = selectedDestination.value ?: return
+        val header = computeDestinationHeader(location, destination)
+        val payload = ExternalNavigationProtocol.buildDestinationMessage(header)
         if (gattClient.sendMessage(payload)) {
-            locationRequestPending = false
+            destinationRequestPending = false
         }
     }
 
@@ -238,6 +236,7 @@ class NavigationForegroundService : Service() {
         private const val RECONNECT_INTERVAL_MS = 10_000L
 
         val currentLocation = mutableStateOf<LatLng?>(null)
+        val selectedDestination = mutableStateOf<LatLng?>(null)
         val connectionState = mutableStateOf(BluetoothConnectionState.DISCONNECTED)
         val isRunning = mutableStateOf(false)
 
