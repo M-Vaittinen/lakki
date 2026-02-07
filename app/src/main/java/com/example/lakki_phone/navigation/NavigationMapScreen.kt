@@ -69,7 +69,7 @@ fun NavigationMapScreen(
     currentLocation: LatLng?,
     connectionState: BluetoothConnectionState,
     onDestinationChanged: (LatLng) -> Unit,
-    onSendDestination: (ByteArray) -> Unit,
+    onSendDestinationMessage: (ByteArray) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -254,7 +254,7 @@ fun NavigationMapScreen(
                     testHeader = header
                     testPayload = payload
                 } else {
-                    onSendDestination(payload)
+                    onSendDestinationMessage(payload)
                 }
             },
             enabled = isSendEnabled,

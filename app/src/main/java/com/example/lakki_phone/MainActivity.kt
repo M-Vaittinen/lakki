@@ -160,7 +160,7 @@ fun LakkiphoneApp() {
                     currentLocation = currentLocation,
                     connectionState = connectionState,
                     onDestinationChanged = { selectedDestination = it },
-                    onSendDestination = { payload ->
+                    onSendDestinationMessage = { payload ->
                         val writeSuccess = if (hasBluetoothConnectPermission(appContext)) {
                             NavigationForegroundService.sendDestination(payload)
                         } else {
