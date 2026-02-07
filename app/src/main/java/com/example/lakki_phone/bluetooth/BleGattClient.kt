@@ -44,6 +44,10 @@ class BleGattClient(
     private var bluetoothGatt: BluetoothGatt? = null
     private var rxCharacteristic: BluetoothGattCharacteristic? = null
     private var txCharacteristic: BluetoothGattCharacteristic? = null
+    private val writeQueue = ArrayDeque<ByteArray>()
+    private var isWriting = false
+    private var maxPayloadSize = DEFAULT_GATT_PAYLOAD_SIZE
+    private val messageFramer = BleMessageFramer { maxPayloadSize }
 
     @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
     fun connect(device: BluetoothDevice) {
@@ -81,27 +85,22 @@ class BleGattClient(
     }
 
     @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
-    fun write(payload: ByteArray): Boolean {
+    fun writeMessage(payload: ByteArray): Boolean {
         if (!hasConnectPermission()) {
             return false
         }
-        val gatt = bluetoothGatt ?: return false
-        val characteristic = rxCharacteristic ?: return false
-        return try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                gatt.writeCharacteristic(
-                    characteristic,
-                    payload,
-                    BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT,
-                ) == BluetoothStatusCodes.SUCCESS
-            } else {
-                characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
-                characteristic.value = payload
-                gatt.writeCharacteristic(characteristic)
-            }
-        } catch (_: SecurityException) {
-            false
+        if (bluetoothGatt == null || rxCharacteristic == null) {
+            return false
         }
+        val frames = messageFramer.frame(payload)
+        if (frames.isEmpty()) {
+            return false
+        }
+        writeQueue.addAll(frames)
+        if (!isWriting) {
+            writeNextFrame()
+        }
+        return true
     }
 
     private fun updateState(state: BleGattConnectionState) {
@@ -119,6 +118,8 @@ class BleGattClient(
         bluetoothGatt = null
         rxCharacteristic = null
         txCharacteristic = null
+        writeQueue.clear()
+        isWriting = false
     }
 
     private fun configureGatt(gatt: BluetoothGatt): Boolean {
@@ -129,6 +130,41 @@ class BleGattClient(
         rxCharacteristic = service.getCharacteristic(rxCharacteristicUuid)
         txCharacteristic = service.getCharacteristic(txCharacteristicUuid)
         return rxCharacteristic != null && enableNotifications(gatt, txCharacteristic)
+    }
+
+    private fun writeNextFrame() {
+        val gatt = bluetoothGatt
+        val characteristic = rxCharacteristic
+        if (gatt == null || characteristic == null) {
+            writeQueue.clear()
+            isWriting = false
+            return
+        }
+        val frame = writeQueue.removeFirstOrNull()
+        if (frame == null) {
+            isWriting = false
+            return
+        }
+        isWriting = true
+        val writeStarted = try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                gatt.writeCharacteristic(
+                    characteristic,
+                    frame,
+                    BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT,
+                ) == BluetoothStatusCodes.SUCCESS
+            } else {
+                characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+                characteristic.value = frame
+                gatt.writeCharacteristic(characteristic)
+            }
+        } catch (_: SecurityException) {
+            false
+        }
+        if (!writeStarted) {
+            writeQueue.clear()
+            isWriting = false
+        }
     }
 
     private fun enableNotifications(
@@ -206,6 +242,21 @@ class BleGattClient(
             }
         }
 
+        override fun onCharacteristicWrite(
+            gatt: BluetoothGatt,
+            characteristic: BluetoothGattCharacteristic,
+            status: Int,
+        ) {
+            if (characteristic.uuid == rxCharacteristicUuid) {
+                if (status == BluetoothGatt.GATT_SUCCESS) {
+                    writeNextFrame()
+                } else {
+                    writeQueue.clear()
+                    isWriting = false
+                }
+            }
+        }
+
         override fun onCharacteristicChanged(
             gatt: BluetoothGatt,
             characteristic: BluetoothGattCharacteristic,
@@ -245,6 +296,12 @@ class BleGattClient(
                 }
             }
         }
+
+        override fun onMtuChanged(gatt: BluetoothGatt, mtu: Int, status: Int) {
+            if (status == BluetoothGatt.GATT_SUCCESS) {
+                maxPayloadSize = (mtu - ATT_HEADER_SIZE).coerceAtLeast(1)
+            }
+        }
     }
 
     private fun hasConnectPermission(): Boolean {
@@ -252,5 +309,32 @@ class BleGattClient(
             context,
             Manifest.permission.BLUETOOTH_CONNECT,
         ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+    }
+
+    private class BleMessageFramer(
+        private val maxPayloadSizeProvider: () -> Int,
+    ) {
+        fun frame(payload: ByteArray): List<ByteArray> {
+            if (payload.isEmpty()) {
+                return emptyList()
+            }
+            val maxPayloadSize = maxPayloadSizeProvider().coerceAtLeast(1)
+            if (payload.size <= maxPayloadSize) {
+                return listOf(payload)
+            }
+            val frames = ArrayList<ByteArray>()
+            var offset = 0
+            while (offset < payload.size) {
+                val end = (offset + maxPayloadSize).coerceAtMost(payload.size)
+                frames.add(payload.copyOfRange(offset, end))
+                offset = end
+            }
+            return frames
+        }
+    }
+
+    private companion object {
+        const val DEFAULT_GATT_PAYLOAD_SIZE = 20
+        const val ATT_HEADER_SIZE = 3
     }
 }

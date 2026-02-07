@@ -54,6 +54,9 @@ class NavigationForegroundService : Service() {
                 BleGattConnectionState.DISCONNECTED -> BluetoothConnectionState.DISCONNECTED
             }
         },
+        onMessageReceived = { payload ->
+            handleIncomingGattMessage(payload)
+        },
     )
     private val reconnectRunnable = object : Runnable {
         override fun run() {
@@ -176,12 +179,16 @@ class NavigationForegroundService : Service() {
     }
 
     @SuppressLint("MissingPermission")
-    private fun sendDestination(payload: ByteArray): Boolean {
+    private fun sendDestinationMessage(payload: ByteArray): Boolean {
         return if (hasBluetoothConnectPermission()) {
-            gattClient.write(payload)
+            gattClient.writeMessage(payload)
         } else {
             false
         }
+    }
+
+    private fun handleIncomingGattMessage(payload: ByteArray) {
+        lastReceivedMessage.value = payload
     }
 
     private fun hasBluetoothConnectPermission(): Boolean {
@@ -237,7 +244,9 @@ class NavigationForegroundService : Service() {
         }
 
         fun sendDestination(payload: ByteArray): Boolean {
-            return activeService?.sendDestination(payload) ?: false
+            return activeService?.sendDestinationMessage(payload) ?: false
         }
+
+        val lastReceivedMessage = mutableStateOf<ByteArray?>(null)
     }
 }
