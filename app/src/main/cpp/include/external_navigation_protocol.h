@@ -41,8 +41,7 @@ typedef enum enp_message_type {
     ENP_MESSAGE_TYPE_HANDSHAKE = 1,
     ENP_MESSAGE_TYPE_DESTINATION = 2,
     ENP_MESSAGE_TYPE_MOVEMENT = 3,
-    ENP_MESSAGE_TYPE_LOCATION_REQUEST = 4,
-    ENP_MESSAGE_TYPE_LOCATION_UPDATE = 5,
+    ENP_MESSAGE_TYPE_DESTINATION_REQUEST = 4,
 } enp_message_type_t;
 
 /** Optional TLV attribute descriptor (host representation). */
@@ -70,17 +69,11 @@ typedef struct enp_movement_header {
     uint32_t speed_centimeters_per_second;
 } enp_movement_header_t;
 
-/** LOCATION_REQUEST message-specific header (host representation). */
-typedef struct enp_location_request_header {
+/** DESTINATION_REQUEST message-specific header (host representation). */
+typedef struct enp_destination_request_header {
     uint32_t reserved0;
     uint32_t reserved1;
-} enp_location_request_header_t;
-
-/** LOCATION_UPDATE message-specific header (host representation). */
-typedef struct enp_location_header {
-    uint32_t latitude_e7;
-    uint32_t longitude_e7;
-} enp_location_header_t;
+} enp_destination_request_header_t;
 
 /** Returns encoded TLV size (type + length + payload) for one attribute. */
 static inline size_t enp_attribute_encoded_size(uint16_t payload_size) {
