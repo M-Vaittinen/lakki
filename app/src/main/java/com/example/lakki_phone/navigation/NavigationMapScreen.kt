@@ -52,8 +52,6 @@ private const val NLS_WMTS_SOURCE_ID = "nls-wmts"
 private const val NLS_WMTS_LAYER_ID = "nls-topographic"
 private const val DESTINATION_SOURCE_ID = "destination-source"
 private const val DESTINATION_LAYER_ID = "destination-layer"
-private const val MAP_DATA_LOADING_KNOWN_ISSUE_NOTE =
-    "If the map is blank, verify a valid NLS API key and WMTS parameters."
 
 private const val NLS_WMTS_URL_TEMPLATE =
     "https://avoin-karttakuva.maanmittauslaitos.fi/avoin/wmts" +
@@ -199,10 +197,6 @@ fun NavigationMapScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(text = "Tap or long-press map to set destination")
-        Text(
-            text = MAP_DATA_LOADING_KNOWN_ISSUE_NOTE,
-            style = MaterialTheme.typography.bodySmall,
-        )
         Text(
             text = selectedDestination
                 ?.let { "Destination: %.6f, %.6f".format(it.latitude, it.longitude) }
