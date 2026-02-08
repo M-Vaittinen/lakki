@@ -380,7 +380,7 @@ private fun updateCurrentLocationSource(
 }
 
 private fun calculateTriangleDelta(zoom: Double): Double {
-    val baseDelta = 0.0015
+    val baseDelta = 0.0005
     val scale = 2.0.coerceAtLeast(Math.pow(2.0, 12.0 - zoom))
     return baseDelta * scale
 }
