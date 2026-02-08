@@ -60,12 +60,15 @@ All multi-byte integers are **big-endian**.
 
 ## Message types and headers
 
-| Type ID | Name               | Direction         | Header (8 bytes)                           |
-|--------:|--------------------|-------------------|--------------------------------------------|
-| 1       | HANDSHAKE           | cap ↔ phone       | protocol_version (u32), capabilities (u32) |
-| 2       | DESTINATION         | phone → cap       | direction (u32), distance_meters (u32)     |
-| 3       | MOVEMENT            | phone → cap       | direction (u32), speed_cm_s (u32)          |
-| 4       | DESTINATION_REQUEST | cap → phone       | reserved0 (u32), reserved1 (u32)           |
+| Type ID | Name                        | Direction         | Header (8 bytes)                             |
+|--------:|-----------------------------|-------------------|----------------------------------------------|
+| 1       | HANDSHAKE                    | cap ↔ phone       | protocol_version (u32), capabilities (u32)   |
+| 2       | DESTINATION                  | phone → cap       | direction (u32), distance_meters (u32)       |
+| 3       | MOVEMENT                     | phone → cap       | direction (u32), speed_cm_s (u32)            |
+| 4       | DESTINATION_REQUEST          | cap → phone       | reserved0 (u32), reserved1 (u32)             |
+| 5       | CAP_DIRECTION                | cap → phone       | direction (u32), reserved (u32)              |
+| 6       | CAP_DIRECTION_REQUEST_START  | phone → cap       | reserved0 (u32), reserved1 (u32)             |
+| 7       | CAP_DIRECTION_REQUEST_STOP   | phone → cap       | reserved0 (u32), reserved1 (u32)             |
 
 ### Header field definitions
 
@@ -74,8 +77,10 @@ All multi-byte integers are **big-endian**.
 * **direction**: Direction in degrees (0–359), encoded as an unsigned 32-bit integer.
 * **distance_meters**: Distance to destination in meters.
 * **speed_cm_s**: Speed in centimeters per second.
+* **reserved**: Must be zero for now; reserved for future use in `CAP_DIRECTION` messages.
 * **reserved0/reserved1**: Must be zero for now; reserved for future use in
-  `DESTINATION_REQUEST` messages.
+  `DESTINATION_REQUEST`, `CAP_DIRECTION_REQUEST_START`, and
+  `CAP_DIRECTION_REQUEST_STOP` messages.
 
 ## Typical message flow
 
@@ -83,3 +88,6 @@ All multi-byte integers are **big-endian**.
 2. **Navigation updates**: Phone periodically sends `DESTINATION` or `MOVEMENT` messages.
 3. **Destination request**: Cap sends `DESTINATION_REQUEST` to ask the phone to recompute the
    latest direction and distance based on its current location and stored destination.
+4. **Cap direction stream**: Phone sends `CAP_DIRECTION_REQUEST_START` to request that the cap
+   periodically publish its current heading via `CAP_DIRECTION`. Phone sends
+   `CAP_DIRECTION_REQUEST_STOP` to stop the stream.
