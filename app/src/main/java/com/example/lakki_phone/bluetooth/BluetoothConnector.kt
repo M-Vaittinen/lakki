@@ -4,6 +4,11 @@ import android.Manifest
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.BluetoothSocket
+import android.bluetooth.le.ScanCallback
+import android.bluetooth.le.ScanFilter
+import android.bluetooth.le.ScanResult
+import android.bluetooth.le.ScanSettings
+import android.os.ParcelUuid
 import android.content.Context
 import androidx.annotation.RequiresPermission
 import java.io.IOException
@@ -22,6 +27,48 @@ class BluetoothConnector {
     @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
     fun getBondedDevices(): Set<BluetoothDevice> {
         return bluetoothAdapter?.bondedDevices.orEmpty()
+    }
+
+    @RequiresPermission(allOf = [Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT])
+    fun startLeScanForService(
+        serviceUuid: UUID,
+        preferredDeviceName: String,
+        onDeviceFound: (BluetoothDevice) -> Unit,
+        onScanFailed: () -> Unit,
+    ): ScanCallback? {
+        val scanner = bluetoothAdapter?.bluetoothLeScanner ?: return null
+        val filters = listOf(
+            ScanFilter.Builder()
+                .setServiceUuid(ParcelUuid(serviceUuid))
+                .build(),
+        )
+        val settings = ScanSettings.Builder()
+            .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+            .build()
+        val callback = object : ScanCallback() {
+            override fun onScanResult(callbackType: Int, result: ScanResult) {
+                val device = result.device ?: return
+                val name = device.name ?: result.scanRecord?.deviceName
+                if (name == preferredDeviceName || name == null) {
+                    stopLeScan(this)
+                    onDeviceFound(device)
+                }
+            }
+
+            override fun onScanFailed(errorCode: Int) {
+                onScanFailed()
+            }
+        }
+        scanner.startScan(filters, settings, callback)
+        return callback
+    }
+
+    @RequiresPermission(Manifest.permission.BLUETOOTH_SCAN)
+    fun stopLeScan(callback: ScanCallback?) {
+        if (callback == null) {
+            return
+        }
+        bluetoothAdapter?.bluetoothLeScanner?.stopScan(callback)
     }
 
     @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
