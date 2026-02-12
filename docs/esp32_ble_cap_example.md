@@ -173,8 +173,9 @@ This is a valid and expected Android BLE flow.
 
 ### Potentially unnecessary/redundant step
 
-- The previously redundant `CONNECTING` emission on `STATE_CONNECTED` has been removed
-  from the app client implementation.
+- In `onConnectionStateChange(...STATE_CONNECTED...)`, state is set to `CONNECTING`
+  again even though `connect()` already set `CONNECTING`. This is mostly harmless but
+  redundant UI/state churn.
 
 ### Optional improvements (not strictly unnecessary)
 
@@ -192,23 +193,3 @@ This is a valid and expected Android BLE flow.
 5. Android writes CCCD for TX notifications
 6. Cap calls `pTxCharacteristic->notify()` with payload bytes
 
-
-## Phone app connection behavior (updated)
-
-The app now actively performs BLE scanning for the cap when Connect is pressed,
-instead of only trying bonded devices.
-
-### Connect button flow
-
-1. Request `BLUETOOTH_CONNECT` + `BLUETOOTH_SCAN` runtime permissions if missing.
-2. Start the foreground service.
-3. Service checks bonded devices by name (`LakkiCap`).
-4. If not bonded/found, service starts LE scan filtered by service UUID
-   `6E400001-B5A3-F393-E0A9-E50E24DCCA9E`.
-5. On matching scan result, service stops scan and calls `BleGattClient.connect(device)`.
-6. Connection state becomes:
-   - `CONNECTING` while scanning/connecting
-   - `CONNECTED` only after CCCD write succeeds (notifications enabled)
-   - `DISCONNECTED` on errors/disconnect.
-
-This behavior matches a first-time device that is advertising but not yet bonded.
