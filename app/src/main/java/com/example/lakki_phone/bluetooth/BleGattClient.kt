@@ -214,7 +214,6 @@ class BleGattClient(
             }
             when (newState) {
                 BluetoothProfile.STATE_CONNECTED -> {
-                    updateState(BleGattConnectionState.CONNECTING)
                     try {
                         gatt.discoverServices()
                     } catch (_: SecurityException) {

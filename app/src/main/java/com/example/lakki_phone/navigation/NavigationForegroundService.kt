@@ -12,6 +12,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.bluetooth.le.ScanCallback
 import android.content.pm.ServiceInfo
 import androidx.compose.runtime.mutableStateOf
 import androidx.core.app.NotificationCompat
@@ -28,6 +29,7 @@ import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import org.maplibre.android.geometry.LatLng
+import java.util.UUID
 
 class NavigationForegroundService : Service() {
     private val bluetoothConnector = BluetoothConnector()
@@ -70,6 +72,11 @@ class NavigationForegroundService : Service() {
         }
     }
     private var destinationRequestPending = false
+    private var activeScanCallback: ScanCallback? = null
+    private val scanTimeoutRunnable = Runnable {
+        stopActiveScan()
+        connectToBondedDevice()
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -159,18 +166,29 @@ class NavigationForegroundService : Service() {
 
     @SuppressLint("MissingPermission")
     private fun ensureGattConnection() {
-        if (!hasBluetoothConnectPermission()) {
+        if (!hasBluetoothConnectPermission() || !hasBluetoothScanPermission()) {
+            connectionState.value = BluetoothConnectionState.DISCONNECTED
             return
         }
-        if (connectionState.value != BluetoothConnectionState.DISCONNECTED) {
+        if (connectionState.value == BluetoothConnectionState.CONNECTED) {
+            return
+        }
+        if (connectionState.value == BluetoothConnectionState.CONNECTING && activeScanCallback != null) {
             return
         }
         val device = try {
-            bluetoothConnector.getBondedDevices().firstOrNull()
+            bluetoothConnector.getBondedDevices().firstOrNull { bonded ->
+                bonded.name == CAP_DEVICE_NAME
+            }
         } catch (_: SecurityException) {
             null
         }
-        device?.let { gattClient.connect(it) }
+        if (device != null) {
+            connectionState.value = BluetoothConnectionState.CONNECTING
+            gattClient.connect(device)
+            return
+        }
+        startScanAndConnect()
     }
 
     private fun connectToBondedDevice() {
@@ -178,7 +196,52 @@ class NavigationForegroundService : Service() {
     }
 
     @SuppressLint("MissingPermission")
+    private fun startScanAndConnect() {
+        stopActiveScan()
+        val callback = try {
+            bluetoothConnector.startLeScanForService(
+                serviceUuid = CAP_DEVICE_SERVICE_UUID,
+                preferredDeviceName = CAP_DEVICE_NAME,
+                onDeviceFound = { device ->
+                    mainHandler.post {
+                        stopActiveScan()
+                        gattClient.connect(device)
+                    }
+                },
+                onScanFailed = {
+                    mainHandler.post {
+                        stopActiveScan()
+                        connectionState.value = BluetoothConnectionState.DISCONNECTED
+                    }
+                },
+            )
+        } catch (_: SecurityException) {
+            null
+        }
+        if (callback == null) {
+            connectionState.value = BluetoothConnectionState.DISCONNECTED
+            return
+        }
+        connectionState.value = BluetoothConnectionState.CONNECTING
+        activeScanCallback = callback
+        reconnectHandler.removeCallbacks(scanTimeoutRunnable)
+        reconnectHandler.postDelayed(scanTimeoutRunnable, SCAN_TIMEOUT_MS)
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun stopActiveScan() {
+        reconnectHandler.removeCallbacks(scanTimeoutRunnable)
+        try {
+            bluetoothConnector.stopLeScan(activeScanCallback)
+        } catch (_: SecurityException) {
+            // Ignore if permission changed while scanning.
+        }
+        activeScanCallback = null
+    }
+
+    @SuppressLint("MissingPermission")
     private fun disconnectGatt() {
+        stopActiveScan()
         if (hasBluetoothConnectPermission()) {
             gattClient.disconnect()
         } else {
@@ -231,6 +294,13 @@ class NavigationForegroundService : Service() {
         ) == PackageManager.PERMISSION_GRANTED
     }
 
+    private fun hasBluetoothScanPermission(): Boolean {
+        return ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.BLUETOOTH_SCAN,
+        ) == PackageManager.PERMISSION_GRANTED
+    }
+
     private fun hasLocationPermission(): Boolean {
         val finePermission = ContextCompat.checkSelfPermission(
             this,
@@ -248,6 +318,10 @@ class NavigationForegroundService : Service() {
         private const val CHANNEL_NAME = "Navigation Updates"
         private const val NOTIFICATION_ID = 1001
         private const val RECONNECT_INTERVAL_MS = 10_000L
+        private const val SCAN_TIMEOUT_MS = 8_000L
+        private const val CAP_DEVICE_NAME = "LakkiCap"
+        private val CAP_DEVICE_SERVICE_UUID: UUID =
+            UUID.fromString("6E400001-B5A3-F393-E0A9-E50E24DCCA9E")
 
         val currentLocation = mutableStateOf<LatLng?>(null)
         val selectedDestination = mutableStateOf<LatLng?>(null)

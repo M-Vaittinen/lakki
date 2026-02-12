@@ -75,12 +75,27 @@ fun LakkiphoneApp() {
     val capDirection by NavigationForegroundService.capDirection
     var hasLocationPermission by remember { mutableStateOf(false) }
     var hasRequestedLocationPermission by remember { mutableStateOf(false) }
+    var hasBluetoothPermissions by remember { mutableStateOf(false) }
     val navigationEnabledFlow = remember(appContext) {
         NavigationPreferences.navigationEnabledFlow(appContext)
     }
     val navigationEnabled by navigationEnabledFlow.collectAsState(
         initial = NavigationPreferences.isNavigationEnabled(appContext),
     )
+    val bluetoothPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        hasBluetoothPermissions = permissions[Manifest.permission.BLUETOOTH_CONNECT] == true &&
+            permissions[Manifest.permission.BLUETOOTH_SCAN] == true
+        if (hasBluetoothPermissions) {
+            NavigationForegroundService.start(appContext)
+            NavigationForegroundService.connectToBondedDevice()
+        } else {
+            NavigationForegroundService.connectionState.value =
+                BluetoothConnectionState.DISCONNECTED
+        }
+    }
+
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
@@ -93,6 +108,7 @@ fun LakkiphoneApp() {
 
     LaunchedEffect(Unit) {
         hasLocationPermission = hasLocationPermission(appContext)
+        hasBluetoothPermissions = hasBluetoothPermissions(appContext)
     }
 
     LaunchedEffect(navigationEnabled) {
@@ -143,9 +159,13 @@ fun LakkiphoneApp() {
                 AppDestinations.HOME -> DeviceConnectionScreen(
                     connectionState = connectionState,
                     onConnectClick = {
-                        if (!hasBluetoothConnectPermission(appContext)) {
-                            NavigationForegroundService.connectionState.value =
-                                BluetoothConnectionState.DISCONNECTED
+                        if (!hasBluetoothPermissions(appContext)) {
+                            bluetoothPermissionLauncher.launch(
+                                arrayOf(
+                                    Manifest.permission.BLUETOOTH_CONNECT,
+                                    Manifest.permission.BLUETOOTH_SCAN,
+                                )
+                            )
                         } else {
                             NavigationForegroundService.start(appContext)
                             NavigationForegroundService.connectToBondedDevice()
@@ -211,6 +231,18 @@ fun LakkiphoneApp() {
     }
 }
 
+
+private fun hasBluetoothPermissions(context: android.content.Context): Boolean {
+    val hasConnect = ContextCompat.checkSelfPermission(
+        context,
+        Manifest.permission.BLUETOOTH_CONNECT,
+    ) == PackageManager.PERMISSION_GRANTED
+    val hasScan = ContextCompat.checkSelfPermission(
+        context,
+        Manifest.permission.BLUETOOTH_SCAN,
+    ) == PackageManager.PERMISSION_GRANTED
+    return hasConnect && hasScan
+}
 
 private fun hasBluetoothConnectPermission(context: android.content.Context): Boolean {
     return ContextCompat.checkSelfPermission(
