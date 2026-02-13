@@ -341,14 +341,18 @@ private fun updateCurrentLocationSource(
     zoom: Double,
     directionDegrees: Int?,
 ) {
-    val delta = calculateTriangleDelta(zoom)
+    val delta = calculateIndicatorDelta(zoom)
     val directionRadians = Math.toRadians((directionDegrees ?: 0).toDouble())
     val cosAngle = kotlin.math.cos(directionRadians)
     val sinAngle = kotlin.math.sin(directionRadians)
-    val triangleOffsets = listOf(
+    val arrowOffsets = listOf(
         0.0 to 0.0,
-        -delta to -2 * delta,
-        delta to -2 * delta,
+        -0.9 * delta to -1.1 * delta,
+        -0.3 * delta to -1.1 * delta,
+        -0.3 * delta to -2.4 * delta,
+        0.3 * delta to -2.4 * delta,
+        0.3 * delta to -1.1 * delta,
+        0.9 * delta to -1.1 * delta,
         0.0 to 0.0,
     ).map { (x, y) ->
         val rotatedX = x * cosAngle - y * sinAngle
@@ -358,22 +362,26 @@ private fun updateCurrentLocationSource(
             currentLocation.latitude + rotatedY,
         )
     }
-    val triangle = Polygon.fromLngLats(
+    val arrow = Polygon.fromLngLats(
         listOf(
             listOf(
-                triangleOffsets[0],
-                triangleOffsets[1],
-                triangleOffsets[2],
-                triangleOffsets[3],
+                arrowOffsets[0],
+                arrowOffsets[1],
+                arrowOffsets[2],
+                arrowOffsets[3],
+                arrowOffsets[4],
+                arrowOffsets[5],
+                arrowOffsets[6],
+                arrowOffsets[7],
             )
         )
     )
     style.getSourceAs<GeoJsonSource>(CURRENT_LOCATION_SOURCE_ID)?.setGeoJson(
-        Feature.fromGeometry(triangle)
+        Feature.fromGeometry(arrow)
     )
 }
 
-private fun calculateTriangleDelta(zoom: Double): Double {
+private fun calculateIndicatorDelta(zoom: Double): Double {
     val baseDelta = 0.0005
     val scale = 2.0.coerceAtLeast(Math.pow(2.0, 12.0 - zoom))
     return baseDelta * scale
