@@ -69,6 +69,8 @@ All multi-byte integers are **big-endian**.
 | 5       | CAP_DIRECTION                | cap → phone       | direction (u32), reserved (u32)              |
 | 6       | CAP_DIRECTION_REQUEST_START  | phone → cap       | reserved0 (u32), reserved1 (u32)             |
 | 7       | CAP_DIRECTION_REQUEST_STOP   | phone → cap       | reserved0 (u32), reserved1 (u32)             |
+| 8       | CAP_STATE                    | cap → phone       | state (u32), reserved (u32)                  |
+| 9       | DEBUG_LOG                    | cap → phone       | severity (u32), reserved (u32)               |
 
 ### Header field definitions
 
@@ -81,6 +83,12 @@ All multi-byte integers are **big-endian**.
 * **reserved0/reserved1**: Must be zero for now; reserved for future use in
   `DESTINATION_REQUEST`, `CAP_DIRECTION_REQUEST_START`, and
   `CAP_DIRECTION_REQUEST_STOP` messages.
+* **state**: Cap operational state enum in `CAP_STATE`.
+  * `0 = UNKNOWN`
+  * `1 = CALIBRATING`
+  * `2 = NAVIGATING`
+  * `3 = ERROR`
+* **severity**: Optional debug severity in `DEBUG_LOG` (implementation-defined; `0` = generic).
 
 ## Typical message flow
 
@@ -91,3 +99,34 @@ All multi-byte integers are **big-endian**.
 4. **Cap direction stream**: Phone sends `CAP_DIRECTION_REQUEST_START` to request that the cap
    periodically publish its current heading via `CAP_DIRECTION`. Phone sends
    `CAP_DIRECTION_REQUEST_STOP` to stop the stream.
+
+## Attribute conventions for cap diagnostics
+
+Use TLV attributes to carry text fields so the same message headers stay stable while payloads
+can evolve.
+
+| Attribute Type | Name       | Payload encoding | Used by              |
+|---------------:|------------|------------------|----------------------|
+| 1              | TEXT_UTF8  | UTF-8 string     | `CAP_STATE`, `DEBUG_LOG` |
+
+Guidelines:
+
+* In `CAP_STATE` with `state = ERROR`, include an optional `TEXT_UTF8` attribute with a short
+  user-facing explanation (example: `"Magnetometer calibration timeout"`).
+* In `DEBUG_LOG`, include one `TEXT_UTF8` attribute containing a single log line. Keep lines short
+  (recommended max ~120 characters) for UI readability and BLE throughput.
+* For cap firmware implementation, emit one protocol message per logical event/log line; do not
+  concatenate multiple log lines into one `TEXT_UTF8` payload.
+
+## Cap firmware implementation checklist
+
+When adding these messages to cap-side code, follow this checklist:
+
+1. Add message type IDs `8` (`CAP_STATE`) and `9` (`DEBUG_LOG`) to the cap protocol enum so they
+   match Android exactly.
+2. Reuse the common 8-byte message header layout (`u32 + u32`, big-endian).
+3. Add attribute type `1` (`TEXT_UTF8`) in cap-side TLV encoding/decoding utilities.
+4. Ensure `CAP_STATE(ERROR)` can include optional explanation text as `TEXT_UTF8`.
+5. Ensure `DEBUG_LOG` sends exactly one log line per message via `TEXT_UTF8`.
+6. Keep all integer fields big-endian and set reserved fields to zero unless a future revision
+   defines them.

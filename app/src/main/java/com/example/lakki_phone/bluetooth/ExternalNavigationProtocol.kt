@@ -2,6 +2,7 @@ package com.example.lakki_phone.bluetooth
 
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.nio.charset.StandardCharsets
 
 /**
  * Placeholder implementation of the binary protocol used for communicating with
@@ -36,6 +37,19 @@ object ExternalNavigationProtocol {
         CAP_DIRECTION(5),
         CAP_DIRECTION_REQUEST_START(6),
         CAP_DIRECTION_REQUEST_STOP(7),
+        CAP_STATE(8),
+        DEBUG_LOG(9),
+    }
+
+    enum class AttributeType(val value: Int) {
+        TEXT_UTF8(1),
+    }
+
+    enum class CapState(val value: Int) {
+        UNKNOWN(0),
+        CALIBRATING(1),
+        NAVIGATING(2),
+        ERROR(3),
     }
 
     /**
@@ -103,6 +117,21 @@ object ExternalNavigationProtocol {
     data class CapDirectionRequestHeader(
         val reserved0: Int = 0,
         val reserved1: Int = 0,
+    )
+
+    data class CapStateHeader(
+        val state: CapState,
+        val reserved: Int = 0,
+    )
+
+    data class DebugLogHeader(
+        val severity: Int = 0,
+        val reserved: Int = 0,
+    )
+
+    data class DecodedAttribute(
+        val type: Int,
+        val data: ByteArray,
     )
 
     fun buildHandshakeMessage(
@@ -207,6 +236,43 @@ object ExternalNavigationProtocol {
         )
     }
 
+    fun buildCapStateMessage(
+        header: CapStateHeader,
+        attributes: List<Attribute> = emptyList(),
+    ): ByteArray {
+        val headerBytes = ByteBuffer.allocate(Int.SIZE_BYTES * 2)
+            .order(byteOrder)
+            .putInt(header.state.value)
+            .putInt(header.reserved)
+            .array()
+
+        return buildMessage(
+            messageType = MessageType.CAP_STATE,
+            headerBytes = headerBytes,
+            attributes = attributes,
+        )
+    }
+
+    fun buildDebugLogMessage(
+        header: DebugLogHeader = DebugLogHeader(),
+        line: String,
+    ): ByteArray {
+        val textAttribute = Attribute(
+            type = AttributeType.TEXT_UTF8.value,
+            data = line.toByteArray(StandardCharsets.UTF_8),
+        )
+        val headerBytes = ByteBuffer.allocate(Int.SIZE_BYTES * 2)
+            .order(byteOrder)
+            .putInt(header.severity)
+            .putInt(header.reserved)
+            .array()
+        return buildMessage(
+            messageType = MessageType.DEBUG_LOG,
+            headerBytes = headerBytes,
+            attributes = listOf(textAttribute),
+        )
+    }
+
     fun readMessageType(payload: ByteArray): MessageType? {
         if (payload.size < MESSAGE_TYPE_SIZE_BYTES) {
             return null
@@ -229,6 +295,54 @@ object ExternalNavigationProtocol {
             direction = buffer.int,
             reserved = buffer.int,
         )
+    }
+
+    fun readCapStateHeader(payload: ByteArray): CapStateHeader? {
+        val headerSize = MESSAGE_TYPE_SIZE_BYTES + MESSAGE_LENGTH_SIZE_BYTES + Int.SIZE_BYTES * 2
+        if (payload.size < headerSize) {
+            return null
+        }
+        val buffer = ByteBuffer.wrap(payload)
+            .order(byteOrder)
+        buffer.position(MESSAGE_TYPE_SIZE_BYTES + MESSAGE_LENGTH_SIZE_BYTES)
+        val state = CapState.entries.firstOrNull { it.value == buffer.int } ?: CapState.UNKNOWN
+        return CapStateHeader(
+            state = state,
+            reserved = buffer.int,
+        )
+    }
+
+    fun readAttributes(payload: ByteArray): List<DecodedAttribute> {
+        val headerOffset = MESSAGE_TYPE_SIZE_BYTES + MESSAGE_LENGTH_SIZE_BYTES + Int.SIZE_BYTES * 2
+        if (payload.size < headerOffset) {
+            return emptyList()
+        }
+        val buffer = ByteBuffer.wrap(payload).order(byteOrder)
+        val decoded = mutableListOf<DecodedAttribute>()
+        buffer.position(headerOffset)
+        while (buffer.remaining() >= ATTRIBUTE_TYPE_SIZE_BYTES + ATTRIBUTE_LENGTH_SIZE_BYTES) {
+            val type = buffer.short.toInt() and 0xFFFF
+            val attributeLength = buffer.short.toInt() and 0xFFFF
+            if (attributeLength < ATTRIBUTE_TYPE_SIZE_BYTES + ATTRIBUTE_LENGTH_SIZE_BYTES) {
+                break
+            }
+            val payloadLength = attributeLength - ATTRIBUTE_TYPE_SIZE_BYTES - ATTRIBUTE_LENGTH_SIZE_BYTES
+            if (buffer.remaining() < payloadLength) {
+                break
+            }
+            val attributePayload = ByteArray(payloadLength)
+            buffer.get(attributePayload)
+            decoded += DecodedAttribute(type = type, data = attributePayload)
+        }
+        return decoded
+    }
+
+    fun readUtf8TextAttribute(payload: ByteArray): String? {
+        val textData = readAttributes(payload)
+            .firstOrNull { it.type == AttributeType.TEXT_UTF8.value }
+            ?.data
+            ?: return null
+        return textData.toString(StandardCharsets.UTF_8)
     }
 
     private fun buildMessage(

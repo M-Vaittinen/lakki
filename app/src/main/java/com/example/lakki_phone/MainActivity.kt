@@ -8,16 +8,22 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBox
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Home
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.adaptive.navigationsuite.NavigationSuiteScaffold
@@ -28,13 +34,16 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.tooling.preview.PreviewScreenSizes
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import com.example.lakki_phone.bluetooth.ExternalNavigationProtocol.CapState
 import com.example.lakki_phone.navigation.NavigationMapScreen
 import com.example.lakki_phone.navigation.NavigationForegroundService
 import com.example.lakki_phone.navigation.NavigationPreferences
@@ -73,6 +82,9 @@ fun LakkiphoneApp() {
     val connectionState by NavigationForegroundService.connectionState
     val isServiceRunning by NavigationForegroundService.isRunning
     val capDirection by NavigationForegroundService.capDirection
+    val capState by NavigationForegroundService.capState
+    val capStateErrorExplanation by NavigationForegroundService.capStateErrorExplanation
+    val capDebugLogLines by NavigationForegroundService.capDebugLogLines
     var hasLocationPermission by remember { mutableStateOf(false) }
     var hasRequestedLocationPermission by remember { mutableStateOf(false) }
     var hasBluetoothPermissions by remember { mutableStateOf(false) }
@@ -224,6 +236,9 @@ fun LakkiphoneApp() {
                 )
 
                 AppDestinations.PROFILE -> DiagnosticsScreen(
+                    capState = capState,
+                    capStateErrorExplanation = capStateErrorExplanation,
+                    capDebugLogLines = capDebugLogLines,
                     modifier = Modifier.padding(innerPadding)
                 )
             }
@@ -312,7 +327,14 @@ fun DeviceConnectionScreen(
 }
 
 @Composable
-fun DiagnosticsScreen(modifier: Modifier = Modifier) {
+fun DiagnosticsScreen(
+    capState: CapState,
+    capStateErrorExplanation: String?,
+    capDebugLogLines: List<String>,
+    modifier: Modifier = Modifier,
+) {
+    val scrollState = rememberScrollState()
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -320,7 +342,55 @@ fun DiagnosticsScreen(modifier: Modifier = Modifier) {
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Text(text = "Device diagnostics")
-        Text(text = "Skeleton placeholder for sensor and health data.")
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(text = "Cap status:")
+            Text(
+                text = capState.name.lowercase().replaceFirstChar { it.titlecase() },
+                color = when (capState) {
+                    CapState.ERROR -> MaterialTheme.colorScheme.error
+                    CapState.CALIBRATING -> MaterialTheme.colorScheme.tertiary
+                    CapState.NAVIGATING -> MaterialTheme.colorScheme.primary
+                    CapState.UNKNOWN -> MaterialTheme.colorScheme.onSurfaceVariant
+                },
+            )
+        }
+        if (capState == CapState.ERROR &&
+            !capStateErrorExplanation.isNullOrBlank()
+        ) {
+            Text(
+                text = "Error details: $capStateErrorExplanation",
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+
+        Text(text = "Cap debug log")
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .background(MaterialTheme.colorScheme.surfaceVariant)
+                .padding(12.dp)
+                .verticalScroll(scrollState),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            if (capDebugLogLines.isEmpty()) {
+                Text(
+                    text = "No debug messages received yet.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                capDebugLogLines.forEach { line ->
+                    Text(
+                        text = line,
+                        fontFamily = FontFamily.Monospace,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
+        }
     }
 }
 

@@ -2,6 +2,7 @@ package com.example.lakki_phone.bluetooth
 
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 import java.nio.ByteBuffer
 
@@ -83,6 +84,55 @@ class ExternalNavigationProtocolTest {
 
         assertEquals(left, right)
         assertEquals(left.hashCode(), right.hashCode())
+    }
+
+
+    @Test
+    fun capStateMessageParsesErrorStateAndExplanationText() {
+        val encoded = ExternalNavigationProtocol.buildCapStateMessage(
+            header = ExternalNavigationProtocol.CapStateHeader(
+                state = ExternalNavigationProtocol.CapState.ERROR,
+            ),
+            attributes = listOf(
+                ExternalNavigationProtocol.Attribute(
+                    type = ExternalNavigationProtocol.AttributeType.TEXT_UTF8.value,
+                    data = "Magnetometer calibration timeout".toByteArray(),
+                ),
+            ),
+        )
+
+        val messageType = ExternalNavigationProtocol.readMessageType(encoded)
+        val header = ExternalNavigationProtocol.readCapStateHeader(encoded)
+        val text = ExternalNavigationProtocol.readUtf8TextAttribute(encoded)
+
+        assertEquals(ExternalNavigationProtocol.MessageType.CAP_STATE, messageType)
+        assertEquals(ExternalNavigationProtocol.CapState.ERROR, header?.state)
+        assertEquals("Magnetometer calibration timeout", text)
+    }
+
+    @Test
+    fun debugLogMessageContainsUtf8AttributeLine() {
+        val encoded = ExternalNavigationProtocol.buildDebugLogMessage(
+            line = "MAG_CAL progress=67%",
+        )
+
+        assertEquals(
+            ExternalNavigationProtocol.MessageType.DEBUG_LOG,
+            ExternalNavigationProtocol.readMessageType(encoded),
+        )
+        assertEquals("MAG_CAL progress=67%", ExternalNavigationProtocol.readUtf8TextAttribute(encoded))
+    }
+
+    @Test
+    fun utf8TextAttributeReturnsNullWhenMissing() {
+        val encoded = ExternalNavigationProtocol.buildMovementMessage(
+            ExternalNavigationProtocol.MovementHeader(
+                direction = 10,
+                speedCentimetersPerSecond = 1,
+            ),
+        )
+
+        assertNull(ExternalNavigationProtocol.readUtf8TextAttribute(encoded))
     }
 
 }

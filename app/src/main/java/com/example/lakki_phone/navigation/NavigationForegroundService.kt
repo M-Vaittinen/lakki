@@ -23,6 +23,7 @@ import com.example.lakki_phone.bluetooth.BleGattClient
 import com.example.lakki_phone.bluetooth.BleGattConnectionState
 import com.example.lakki_phone.bluetooth.BluetoothConnector
 import com.example.lakki_phone.bluetooth.ExternalNavigationProtocol
+import com.example.lakki_phone.bluetooth.ExternalNavigationProtocol.CapState
 import com.google.android.gms.location.LocationCallback
 import com.google.android.gms.location.LocationRequest
 import com.google.android.gms.location.LocationResult
@@ -59,6 +60,8 @@ class NavigationForegroundService : Service() {
             }
             if (state == BleGattConnectionState.DISCONNECTED) {
                 capDirection.value = null
+                capState.value = CapState.UNKNOWN
+                capStateErrorExplanation.value = null
             }
         },
         onMessageReceived = { payload ->
@@ -270,6 +273,21 @@ class NavigationForegroundService : Service() {
                 val header = ExternalNavigationProtocol.readCapDirectionHeader(payload) ?: return
                 capDirection.value = header.direction
             }
+            ExternalNavigationProtocol.MessageType.CAP_STATE -> {
+                val header = ExternalNavigationProtocol.readCapStateHeader(payload) ?: return
+                capState.value = header.state
+                capStateErrorExplanation.value = if (header.state == CapState.ERROR) {
+                    ExternalNavigationProtocol.readUtf8TextAttribute(payload)
+                } else {
+                    null
+                }
+            }
+            ExternalNavigationProtocol.MessageType.DEBUG_LOG -> {
+                val line = ExternalNavigationProtocol.readUtf8TextAttribute(payload) ?: return
+                val existingLines = capDebugLogLines.value
+                val updatedLines = (existingLines + line).takeLast(MAX_CAP_DEBUG_LOG_LINES)
+                capDebugLogLines.value = updatedLines
+            }
             else -> Unit
         }
     }
@@ -366,7 +384,12 @@ class NavigationForegroundService : Service() {
             return activeService?.sendCapDirectionRequestMessage(payload) ?: false
         }
 
+        private const val MAX_CAP_DEBUG_LOG_LINES = 200
+
         val lastReceivedMessage = mutableStateOf<ByteArray?>(null)
         val capDirection = mutableStateOf<Int?>(null)
+        val capState = mutableStateOf(CapState.UNKNOWN)
+        val capStateErrorExplanation = mutableStateOf<String?>(null)
+        val capDebugLogLines = mutableStateOf<List<String>>(emptyList())
     }
 }
