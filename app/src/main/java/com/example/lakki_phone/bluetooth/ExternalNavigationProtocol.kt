@@ -305,7 +305,8 @@ object ExternalNavigationProtocol {
         val buffer = ByteBuffer.wrap(payload)
             .order(byteOrder)
         buffer.position(MESSAGE_TYPE_SIZE_BYTES + MESSAGE_LENGTH_SIZE_BYTES)
-        val state = CapState.entries.firstOrNull { it.value == buffer.int } ?: CapState.UNKNOWN
+        val stateValue = buffer.int
+        val state = CapState.entries.firstOrNull { it.value == stateValue } ?: CapState.UNKNOWN
         return CapStateHeader(
             state = state,
             reserved = buffer.int,
