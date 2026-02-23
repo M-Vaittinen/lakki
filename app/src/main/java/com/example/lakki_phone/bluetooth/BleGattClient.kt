@@ -48,6 +48,7 @@ class BleGattClient(
     private var isWriting = false
     private var maxPayloadSize = DEFAULT_GATT_PAYLOAD_SIZE
     private val messageFramer = BleMessageFramer { maxPayloadSize }
+    private val messageAssembler = BleMessageAssembler()
 
     @RequiresPermission(Manifest.permission.BLUETOOTH_CONNECT)
     fun connect(device: BluetoothDevice) {
@@ -120,6 +121,7 @@ class BleGattClient(
         txCharacteristic = null
         writeQueue.clear()
         isWriting = false
+        messageAssembler.reset()
     }
 
     private fun configureGatt(gatt: BluetoothGatt): Boolean {
@@ -260,9 +262,12 @@ class BleGattClient(
             gatt: BluetoothGatt,
             characteristic: BluetoothGattCharacteristic,
         ) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                return
+            }
             if (characteristic.uuid == txCharacteristicUuid) {
                 val payload = characteristic.value ?: return
-                mainHandler.post { onMessageReceived(payload) }
+                dispatchIncomingFrame(payload)
             }
         }
 
@@ -272,7 +277,7 @@ class BleGattClient(
             value: ByteArray,
         ) {
             if (characteristic.uuid == txCharacteristicUuid) {
-                mainHandler.post { onMessageReceived(value) }
+                dispatchIncomingFrame(value)
             }
         }
 
@@ -300,6 +305,16 @@ class BleGattClient(
             if (status == BluetoothGatt.GATT_SUCCESS) {
                 maxPayloadSize = (mtu - ATT_HEADER_SIZE).coerceAtLeast(1)
             }
+        }
+    }
+
+    private fun dispatchIncomingFrame(frame: ByteArray) {
+        if (frame.isEmpty()) {
+            return
+        }
+        val decodedMessages = messageAssembler.append(frame)
+        decodedMessages.forEach { message ->
+            mainHandler.post { onMessageReceived(message) }
         }
     }
 
@@ -332,8 +347,72 @@ class BleGattClient(
         }
     }
 
+    private class BleMessageAssembler {
+        private val buffer = ArrayList<Byte>()
+
+        fun append(frame: ByteArray): List<ByteArray> {
+            buffer.ensureCapacity(buffer.size + frame.size)
+            frame.forEach(buffer::add)
+            val messages = mutableListOf<ByteArray>()
+            var offset = 0
+
+            while (buffer.size - offset >= MESSAGE_TYPE_SIZE_BYTES + MESSAGE_LENGTH_SIZE_BYTES) {
+                val typeValue = readBigEndianInt(
+                    bytes = buffer,
+                    offset = offset,
+                )
+                val expectedLength = readBigEndianInt(
+                    bytes = buffer,
+                    offset = offset + MESSAGE_LENGTH_OFFSET_BYTES,
+                )
+                val hasValidType = typeValue in MIN_KNOWN_MESSAGE_TYPE..MAX_KNOWN_MESSAGE_TYPE
+                val hasValidLength = expectedLength in MIN_MESSAGE_SIZE_BYTES..MAX_MESSAGE_SIZE_BYTES
+                if (!hasValidType || !hasValidLength) {
+                    offset += 1
+                    continue
+                }
+                if (buffer.size - offset < expectedLength) {
+                    break
+                }
+                val message = ByteArray(expectedLength)
+                for (index in 0 until expectedLength) {
+                    message[index] = buffer[offset + index]
+                }
+                messages += message
+                offset += expectedLength
+            }
+
+            if (offset > 0) {
+                repeat(offset.coerceAtMost(buffer.size)) { buffer.removeAt(0) }
+            }
+            if (buffer.size > MAX_MESSAGE_SIZE_BYTES) {
+                buffer.clear()
+            }
+            return messages
+        }
+
+        fun reset() {
+            buffer.clear()
+        }
+
+        private fun readBigEndianInt(bytes: List<Byte>, offset: Int): Int {
+            return ((bytes[offset].toInt() and 0xFF) shl 24) or
+                ((bytes[offset + 1].toInt() and 0xFF) shl 16) or
+                ((bytes[offset + 2].toInt() and 0xFF) shl 8) or
+                (bytes[offset + 3].toInt() and 0xFF)
+        }
+    }
+
     private companion object {
         const val DEFAULT_GATT_PAYLOAD_SIZE = 20
+        // BLE ATT notification/write header overhead (opcode + handle), not protocol TLV header.
         const val ATT_HEADER_SIZE = 3
+        const val MESSAGE_TYPE_SIZE_BYTES = 4
+        const val MESSAGE_LENGTH_OFFSET_BYTES = 4
+        const val MESSAGE_LENGTH_SIZE_BYTES = 4
+        const val MIN_MESSAGE_SIZE_BYTES = 16
+        const val MAX_MESSAGE_SIZE_BYTES = 4096
+        const val MIN_KNOWN_MESSAGE_TYPE = 1
+        const val MAX_KNOWN_MESSAGE_TYPE = 9
     }
 }

@@ -135,4 +135,16 @@ class ExternalNavigationProtocolTest {
         assertNull(ExternalNavigationProtocol.readUtf8TextAttribute(encoded))
     }
 
+    @Test
+    fun readAttributesReturnsEmptyForTruncatedPayload() {
+        val encoded = ExternalNavigationProtocol.buildDebugLogMessage(line = "abc")
+        val truncated = encoded.copyOf(encoded.size - 1)
+
+        assertNull(ExternalNavigationProtocol.readUtf8TextAttribute(truncated))
+        assertEquals(
+            emptyList<ExternalNavigationProtocol.DecodedAttribute>(),
+            ExternalNavigationProtocol.readAttributes(truncated),
+        )
+    }
+
 }
