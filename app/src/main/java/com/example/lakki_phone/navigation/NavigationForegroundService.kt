@@ -262,34 +262,58 @@ class NavigationForegroundService : Service() {
     }
 
     private fun handleIncomingGattMessage(payload: ByteArray) {
-        lastReceivedMessage.value = payload
-        val messageType = ExternalNavigationProtocol.readMessageType(payload) ?: return
-        when (messageType) {
-            ExternalNavigationProtocol.MessageType.DESTINATION_REQUEST -> {
-                destinationRequestPending = true
-                sendDestinationUpdateIfRequested()
+        runCatching {
+            lastReceivedMessage.value = payload
+            val messageType = ExternalNavigationProtocol.readMessageType(payload) ?: return
+            when (messageType) {
+                ExternalNavigationProtocol.MessageType.DESTINATION_REQUEST -> {
+                    destinationRequestPending = true
+                    sendDestinationUpdateIfRequested()
+                }
+                ExternalNavigationProtocol.MessageType.CAP_DIRECTION -> {
+                    val header = ExternalNavigationProtocol.readCapDirectionHeader(payload) ?: return
+                    capDirection.value = header.direction
+                }
+                ExternalNavigationProtocol.MessageType.CAP_STATE -> {
+                    val header = ExternalNavigationProtocol.readCapStateHeader(payload) ?: return
+                    capState.value = header.state
+                    capStateErrorExplanation.value = if (header.state == CapState.ERROR) {
+                        sanitizeIncomingText(ExternalNavigationProtocol.readUtf8TextAttribute(payload))
+                    } else {
+                        null
+                    }
+                }
+                ExternalNavigationProtocol.MessageType.DEBUG_LOG -> {
+                    val line = sanitizeIncomingText(
+                        ExternalNavigationProtocol.readUtf8TextAttribute(payload),
+                    ) ?: return
+                    val existingLines = capDebugLogLines.value
+                    val updatedLines = (existingLines + line).takeLast(MAX_CAP_DEBUG_LOG_LINES)
+                    capDebugLogLines.value = updatedLines
+                }
+                else -> Unit
             }
-            ExternalNavigationProtocol.MessageType.CAP_DIRECTION -> {
-                val header = ExternalNavigationProtocol.readCapDirectionHeader(payload) ?: return
-                capDirection.value = header.direction
-            }
-            ExternalNavigationProtocol.MessageType.CAP_STATE -> {
-                val header = ExternalNavigationProtocol.readCapStateHeader(payload) ?: return
-                capState.value = header.state
-                capStateErrorExplanation.value = if (header.state == CapState.ERROR) {
-                    ExternalNavigationProtocol.readUtf8TextAttribute(payload)
-                } else {
-                    null
+        }.onFailure {
+            // Keep service alive on malformed or unexpected payloads.
+        }
+    }
+
+    private fun sanitizeIncomingText(value: String?): String? {
+        val raw = value?.trim() ?: return null
+        if (raw.isEmpty()) {
+            return null
+        }
+        val sanitized = buildString(raw.length) {
+            raw.forEach { ch ->
+                if (ch == '\n' || ch == '\t' || !ch.isISOControl()) {
+                    append(ch)
                 }
             }
-            ExternalNavigationProtocol.MessageType.DEBUG_LOG -> {
-                val line = ExternalNavigationProtocol.readUtf8TextAttribute(payload) ?: return
-                val existingLines = capDebugLogLines.value
-                val updatedLines = (existingLines + line).takeLast(MAX_CAP_DEBUG_LOG_LINES)
-                capDebugLogLines.value = updatedLines
-            }
-            else -> Unit
+        }.trim()
+        if (sanitized.isEmpty()) {
+            return null
         }
+        return sanitized.take(MAX_CAP_TEXT_LINE_LENGTH)
     }
 
     private fun sendDestinationUpdateIfRequested() {
@@ -385,6 +409,7 @@ class NavigationForegroundService : Service() {
         }
 
         private const val MAX_CAP_DEBUG_LOG_LINES = 200
+        private const val MAX_CAP_TEXT_LINE_LENGTH = 512
 
         val lastReceivedMessage = mutableStateOf<ByteArray?>(null)
         val capDirection = mutableStateOf<Int?>(null)

@@ -62,12 +62,18 @@ typedef enum enp_attribute_type {
     ENP_ATTRIBUTE_TYPE_TEXT_UTF8 = 1,
 } enp_attribute_type_t;
 
-/** Optional TLV attribute descriptor (host representation). */
-typedef struct enp_attribute {
+/** Encoded TLV attribute header (wire representation without payload bytes). */
+typedef struct enp_attribute_header {
     uint16_t type;
-    const uint8_t* payload;
     uint16_t payload_size;
-} enp_attribute_t;
+} enp_attribute_header_t;
+
+/** Returns pointer to attribute payload when passed pointer to attribute header. */
+#define GET_ATTRIBUTE_PAYLOAD(attribute_header_ptr) \
+    ((const uint8_t*)(attribute_header_ptr) + sizeof(enp_attribute_header_t))
+
+#define ENP_GET_ATTRIBUTE_PAYLOAD(attribute_header_ptr) \
+    GET_ATTRIBUTE_PAYLOAD(attribute_header_ptr)
 
 /** HANDSHAKE message-specific header (host representation). */
 typedef struct enp_handshake_header {

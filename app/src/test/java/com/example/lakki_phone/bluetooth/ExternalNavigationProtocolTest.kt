@@ -135,4 +135,56 @@ class ExternalNavigationProtocolTest {
         assertNull(ExternalNavigationProtocol.readUtf8TextAttribute(encoded))
     }
 
+    @Test
+    fun readAttributesReturnsEmptyForTruncatedPayload() {
+        val encoded = ExternalNavigationProtocol.buildDebugLogMessage(line = "abc")
+        val truncated = encoded.copyOf(encoded.size - 1)
+
+        assertNull(ExternalNavigationProtocol.readUtf8TextAttribute(truncated))
+        assertEquals(
+            emptyList<ExternalNavigationProtocol.DecodedAttribute>(),
+            ExternalNavigationProtocol.readAttributes(truncated),
+        )
+    }
+
+    @Test
+    fun rawCapStateNavigatingPayloadParsesToNavigatingState() {
+        val payload = byteArrayOf(
+            0x00, 0x00, 0x00, 0x08,
+            0x00, 0x00, 0x00, 0x10,
+            0x00, 0x00, 0x00, 0x02,
+            0x00, 0x00, 0x00, 0x00,
+        )
+
+        assertEquals(
+            ExternalNavigationProtocol.MessageType.CAP_STATE,
+            ExternalNavigationProtocol.readMessageType(payload),
+        )
+        assertEquals(
+            ExternalNavigationProtocol.CapState.NAVIGATING,
+            ExternalNavigationProtocol.readCapStateHeader(payload)?.state,
+        )
+    }
+
+    @Test
+    fun rawDebugLogPayloadParsesExpectedText() {
+        val payload = byteArrayOf(
+            0x00, 0x00, 0x00, 0x09,
+            0x00, 0x00, 0x00, 0x28,
+            0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+            0x00, 0x01,
+            0x00, 0x18,
+            0x63, 0x61, 0x70, 0x20, 0x64, 0x69, 0x72, 0x65,
+            0x63, 0x74, 0x69, 0x6f, 0x6e, 0x3a, 0x20, 0x30,
+            0x20, 0x64, 0x65, 0x67,
+        )
+
+        assertEquals(
+            ExternalNavigationProtocol.MessageType.DEBUG_LOG,
+            ExternalNavigationProtocol.readMessageType(payload),
+        )
+        assertEquals("cap direction: 0 deg", ExternalNavigationProtocol.readUtf8TextAttribute(payload))
+    }
+
 }
