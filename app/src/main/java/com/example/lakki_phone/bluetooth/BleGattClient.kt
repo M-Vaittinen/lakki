@@ -349,49 +349,49 @@ class BleGattClient(
 
     private class BleMessageAssembler {
         private val buffer = ArrayList<Byte>()
+        private val lock = Any()
 
-        fun append(frame: ByteArray): List<ByteArray> {
+        fun append(frame: ByteArray): List<ByteArray> = synchronized(lock) {
             buffer.ensureCapacity(buffer.size + frame.size)
             frame.forEach(buffer::add)
             val messages = mutableListOf<ByteArray>()
-            var offset = 0
 
-            while (buffer.size - offset >= MESSAGE_TYPE_SIZE_BYTES + MESSAGE_LENGTH_SIZE_BYTES) {
+            while (true) {
+                if (buffer.size < MESSAGE_TYPE_SIZE_BYTES + MESSAGE_LENGTH_SIZE_BYTES) {
+                    break
+                }
                 val typeValue = readBigEndianInt(
                     bytes = buffer,
-                    offset = offset,
+                    offset = 0,
                 )
                 val expectedLength = readBigEndianInt(
                     bytes = buffer,
-                    offset = offset + MESSAGE_LENGTH_OFFSET_BYTES,
+                    offset = MESSAGE_LENGTH_OFFSET_BYTES,
                 )
                 val hasValidType = typeValue in MIN_KNOWN_MESSAGE_TYPE..MAX_KNOWN_MESSAGE_TYPE
                 val hasValidLength = expectedLength in MIN_MESSAGE_SIZE_BYTES..MAX_MESSAGE_SIZE_BYTES
                 if (!hasValidType || !hasValidLength) {
-                    offset += 1
+                    buffer.removeAt(0)
                     continue
                 }
-                if (buffer.size - offset < expectedLength) {
+                if (buffer.size < expectedLength) {
                     break
                 }
                 val message = ByteArray(expectedLength)
                 for (index in 0 until expectedLength) {
-                    message[index] = buffer[offset + index]
+                    message[index] = buffer[index]
                 }
+                repeat(expectedLength) { buffer.removeAt(0) }
                 messages += message
-                offset += expectedLength
             }
 
-            if (offset > 0) {
-                repeat(offset.coerceAtMost(buffer.size)) { buffer.removeAt(0) }
-            }
             if (buffer.size > MAX_MESSAGE_SIZE_BYTES) {
                 buffer.clear()
             }
-            return messages
+            messages
         }
 
-        fun reset() {
+        fun reset() = synchronized(lock) {
             buffer.clear()
         }
 
