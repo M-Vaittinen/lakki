@@ -281,14 +281,18 @@ class NavigationForegroundService : Service() {
                     val header = ExternalNavigationProtocol.readCapStateHeader(payload) ?: return
                     capState.value = header.state
                     capStateErrorExplanation.value = if (header.state == CapState.ERROR) {
-                        sanitizeIncomingText(ExternalNavigationProtocol.readUtf8TextAttribute(payload))
+                        ExternalNavigationProtocol.sanitizeIncomingText(
+                            value = ExternalNavigationProtocol.readUtf8TextAttribute(payload),
+                            maxLength = MAX_CAP_TEXT_LINE_LENGTH,
+                        )
                     } else {
                         null
                     }
                 }
                 ExternalNavigationProtocol.MessageType.DEBUG_LOG -> {
-                    val line = sanitizeIncomingText(
-                        ExternalNavigationProtocol.readUtf8TextAttribute(payload),
+                    val line = ExternalNavigationProtocol.readSanitizedDebugLogLine(
+                        payload = payload,
+                        maxLength = MAX_CAP_TEXT_LINE_LENGTH,
                     ) ?: return
                     val existingLines = capDebugLogLines.value
                     val updatedLines = (existingLines + line).takeLast(MAX_CAP_DEBUG_LOG_LINES)
@@ -299,24 +303,6 @@ class NavigationForegroundService : Service() {
         }.onFailure {
             // Keep service alive on malformed or unexpected payloads.
         }
-    }
-
-    private fun sanitizeIncomingText(value: String?): String? {
-        val raw = value?.trim() ?: return null
-        if (raw.isEmpty()) {
-            return null
-        }
-        val sanitized = buildString(raw.length) {
-            raw.forEach { ch ->
-                if (ch == '\n' || ch == '\t' || !ch.isISOControl()) {
-                    append(ch)
-                }
-            }
-        }.trim()
-        if (sanitized.isEmpty()) {
-            return null
-        }
-        return sanitized.take(MAX_CAP_TEXT_LINE_LENGTH)
     }
 
     private fun sendDestinationUpdateIfRequested() {

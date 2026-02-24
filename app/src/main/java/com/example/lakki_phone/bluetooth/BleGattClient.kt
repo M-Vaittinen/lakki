@@ -198,6 +198,17 @@ class BleGattClient(
         return notificationSet && descriptorWriteResult
     }
 
+    private fun requestMaximumMtu(gatt: BluetoothGatt) {
+        if (!hasConnectPermission() || Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) {
+            return
+        }
+        try {
+            gatt.requestMtu(MAX_REQUESTED_MTU)
+        } catch (_: SecurityException) {
+            // Ignore; we can continue with default ATT payload.
+        }
+    }
+
     private val gattCallback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(
             gatt: BluetoothGatt,
@@ -232,7 +243,20 @@ class BleGattClient(
         }
 
         override fun onServicesDiscovered(gatt: BluetoothGatt, status: Int) {
-            if (status != BluetoothGatt.GATT_SUCCESS || !configureGatt(gatt)) {
+            if (status != BluetoothGatt.GATT_SUCCESS) {
+                try {
+                    gatt.disconnect()
+                } catch (_: SecurityException) {
+                    // Ignore disconnect when permission is missing.
+                }
+                closeGatt()
+                updateState(BleGattConnectionState.DISCONNECTED)
+                return
+            }
+
+            requestMaximumMtu(gatt)
+
+            if (!configureGatt(gatt)) {
                 try {
                     gatt.disconnect()
                 } catch (_: SecurityException) {
@@ -412,6 +436,7 @@ class BleGattClient(
         const val MESSAGE_LENGTH_SIZE_BYTES = 4
         const val MIN_MESSAGE_SIZE_BYTES = 16
         const val MAX_MESSAGE_SIZE_BYTES = 4096
+        const val MAX_REQUESTED_MTU = 517
         const val MIN_KNOWN_MESSAGE_TYPE = 1
         const val MAX_KNOWN_MESSAGE_TYPE = 9
     }

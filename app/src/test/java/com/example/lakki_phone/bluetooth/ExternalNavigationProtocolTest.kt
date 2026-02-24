@@ -144,6 +144,23 @@ class ExternalNavigationProtocolTest {
         assertEquals("cap direction: 0 deg", ExternalNavigationProtocol.readUtf8TextAttribute(encoded))
     }
 
+
+    @Test
+    fun utf8TextAttributeTrimsCStyleNullTerminatorAndTrailingBytes() {
+        val encoded = ExternalNavigationProtocol.buildDebugLogMessage(
+            line = "cap direction: 0 deg\u0000garbage",
+        )
+
+        assertEquals("cap direction: 0 deg", ExternalNavigationProtocol.readUtf8TextAttribute(encoded))
+        assertEquals(
+            "cap direction: 0 deg",
+            ExternalNavigationProtocol.readSanitizedDebugLogLine(
+                payload = encoded,
+                maxLength = 512,
+            ),
+        )
+    }
+
     @Test
     fun utf8TextAttributeReturnsNullWhenMissing() {
         val encoded = ExternalNavigationProtocol.buildMovementMessage(
@@ -187,8 +204,40 @@ class ExternalNavigationProtocolTest {
         )
     }
 
+
     @Test
-    fun rawDebugLogPayloadParsesExpectedText() {
+    fun readAttributesIgnoresTrailingTransportBytesPastMessageLength() {
+        val encoded = ExternalNavigationProtocol.buildDebugLogMessage(
+            line = "cap direction: 0 deg",
+        )
+        val withTrailingBytes = encoded + byteArrayOf(0x55, 0x66)
+
+        assertEquals("cap direction: 0 deg", ExternalNavigationProtocol.readUtf8TextAttribute(withTrailingBytes))
+    }
+
+    @Test
+    fun readAttributesReturnsEmptyWhenAttributeSectionHasNonTlvTrailingByte() {
+        val payload = byteArrayOf(
+            0x00, 0x00, 0x00, 0x09,
+            0x00, 0x00, 0x00, 0x29,
+            0x00, 0x00, 0x00, 0x00,
+            0x00, 0x00, 0x00, 0x00,
+            0x00, 0x01,
+            0x00, 0x18,
+            0x63, 0x61, 0x70, 0x20, 0x64, 0x69, 0x72, 0x65,
+            0x63, 0x74, 0x69, 0x6f, 0x6e, 0x3a, 0x20, 0x30,
+            0x20, 0x64, 0x65, 0x67,
+            0x28,
+        )
+
+        assertEquals(
+            emptyList<ExternalNavigationProtocol.DecodedAttribute>(),
+            ExternalNavigationProtocol.readAttributes(payload),
+        )
+        assertNull(ExternalNavigationProtocol.readUtf8TextAttribute(payload))
+    }
+    @Test
+    fun rawDebugLogPayloadParsesExpectedTextThroughProductionReceivePath() {
         val payload = byteArrayOf(
             0x00, 0x00, 0x00, 0x09,
             0x00, 0x00, 0x00, 0x28,
@@ -202,10 +251,12 @@ class ExternalNavigationProtocolTest {
         )
 
         assertEquals(
-            ExternalNavigationProtocol.MessageType.DEBUG_LOG,
-            ExternalNavigationProtocol.readMessageType(payload),
+            "cap direction: 0 deg",
+            ExternalNavigationProtocol.readSanitizedDebugLogLine(
+                payload = payload,
+                maxLength = 512,
+            ),
         )
-        assertEquals("cap direction: 0 deg", ExternalNavigationProtocol.readUtf8TextAttribute(payload))
     }
 
 }

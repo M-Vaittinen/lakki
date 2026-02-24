@@ -350,22 +350,26 @@ object ExternalNavigationProtocol {
         if (payload.size < envelope.totalLength || envelope.totalLength < envelope.attributesOffset) {
             return emptyList()
         }
-        val buffer = ByteBuffer.wrap(payload).order(byteOrder)
+        val messagePayload = payload.copyOf(envelope.totalLength)
+        val buffer = ByteBuffer.wrap(messagePayload).order(byteOrder)
         val decoded = mutableListOf<DecodedAttribute>()
         buffer.position(envelope.attributesOffset)
         while (buffer.remaining() >= ATTRIBUTE_TYPE_SIZE_BYTES + ATTRIBUTE_LENGTH_SIZE_BYTES) {
             val type = buffer.short.toInt() and 0xFFFF
             val attributeLength = buffer.short.toInt() and 0xFFFF
             if (attributeLength < ATTRIBUTE_TYPE_SIZE_BYTES + ATTRIBUTE_LENGTH_SIZE_BYTES) {
-                break
+                return emptyList()
             }
             val payloadLength = attributeLength - ATTRIBUTE_TYPE_SIZE_BYTES - ATTRIBUTE_LENGTH_SIZE_BYTES
             if (buffer.remaining() < payloadLength) {
-                break
+                return emptyList()
             }
             val attributePayload = ByteArray(payloadLength)
             buffer.get(attributePayload)
             decoded += DecodedAttribute(type = type, data = attributePayload)
+        }
+        if (buffer.remaining() != 0) {
+            return emptyList()
         }
         return decoded
     }
@@ -422,7 +426,45 @@ object ExternalNavigationProtocol {
             .firstOrNull { it.type == AttributeType.TEXT_UTF8.value }
             ?.data
             ?: return null
-        return textData.toString(StandardCharsets.UTF_8)
+        val cStringLength = textData.indexOf(0)
+            .takeIf { it >= 0 }
+            ?: textData.size
+        return textData.copyOf(cStringLength).toString(StandardCharsets.UTF_8)
+    }
+
+
+    fun sanitizeIncomingText(
+        value: String?,
+        maxLength: Int,
+    ): String? {
+        val raw = value?.trim() ?: return null
+        if (raw.isEmpty()) {
+            return null
+        }
+        val sanitized = buildString(raw.length) {
+            raw.forEach { ch ->
+                if (ch == '\n' || ch == '\t' || !ch.isISOControl()) {
+                    append(ch)
+                }
+            }
+        }.trim()
+        if (sanitized.isEmpty()) {
+            return null
+        }
+        return sanitized.take(maxLength)
+    }
+
+    fun readSanitizedDebugLogLine(
+        payload: ByteArray,
+        maxLength: Int,
+    ): String? {
+        if (readMessageType(payload) != MessageType.DEBUG_LOG) {
+            return null
+        }
+        return sanitizeIncomingText(
+            value = readUtf8TextAttribute(payload),
+            maxLength = maxLength,
+        )
     }
 
     private fun buildMessage(
