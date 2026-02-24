@@ -58,6 +58,9 @@ class NavigationForegroundService : Service() {
                 BleGattConnectionState.CONNECTING -> BluetoothConnectionState.CONNECTING
                 BleGattConnectionState.DISCONNECTED -> BluetoothConnectionState.DISCONNECTED
             }
+            if (state == BleGattConnectionState.CONNECTED) {
+                capDebugLogLines.value = emptyList()
+            }
             if (state == BleGattConnectionState.DISCONNECTED) {
                 capDirection.value = null
                 capState.value = CapState.UNKNOWN
