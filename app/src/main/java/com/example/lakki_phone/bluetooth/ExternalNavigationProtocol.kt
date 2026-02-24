@@ -22,6 +22,15 @@ import java.nio.charset.StandardCharsets
 object ExternalNavigationProtocol {
     private const val MESSAGE_TYPE_SIZE_BYTES = 4
     private const val MESSAGE_LENGTH_SIZE_BYTES = 4
+    private const val TLV_MESSAGE_HEADER_SIZE_BYTES = MESSAGE_TYPE_SIZE_BYTES + MESSAGE_LENGTH_SIZE_BYTES
+    private const val HANDSHAKE_HEADER_SIZE_BYTES = Int.SIZE_BYTES * 2
+    private const val DESTINATION_HEADER_SIZE_BYTES = Int.SIZE_BYTES * 2
+    private const val MOVEMENT_HEADER_SIZE_BYTES = Int.SIZE_BYTES * 2
+    private const val DESTINATION_REQUEST_HEADER_SIZE_BYTES = Int.SIZE_BYTES * 2
+    private const val CAP_DIRECTION_HEADER_SIZE_BYTES = Int.SIZE_BYTES * 2
+    private const val CAP_DIRECTION_REQUEST_HEADER_SIZE_BYTES = Int.SIZE_BYTES * 2
+    private const val CAP_STATE_HEADER_SIZE_BYTES = Int.SIZE_BYTES * 2
+    private const val DEBUG_LOG_HEADER_SIZE_BYTES = Int.SIZE_BYTES * 2
     private const val ATTRIBUTE_TYPE_SIZE_BYTES = 2
     private const val ATTRIBUTE_LENGTH_SIZE_BYTES = 2
 
@@ -132,6 +141,12 @@ object ExternalNavigationProtocol {
     data class DecodedAttribute(
         val type: Int,
         val data: ByteArray,
+    )
+
+    private data class DecodedMessageEnvelope(
+        val type: MessageType,
+        val totalLength: Int,
+        val attributesOffset: Int,
     )
 
     fun buildHandshakeMessage(
@@ -284,13 +299,13 @@ object ExternalNavigationProtocol {
     }
 
     fun readCapDirectionHeader(payload: ByteArray): CapDirectionHeader? {
-        val headerSize = MESSAGE_TYPE_SIZE_BYTES + MESSAGE_LENGTH_SIZE_BYTES + Int.SIZE_BYTES * 2
+        val headerSize = TLV_MESSAGE_HEADER_SIZE_BYTES + CAP_DIRECTION_HEADER_SIZE_BYTES
         if (payload.size < headerSize) {
             return null
         }
         val buffer = ByteBuffer.wrap(payload)
             .order(byteOrder)
-        buffer.position(MESSAGE_TYPE_SIZE_BYTES + MESSAGE_LENGTH_SIZE_BYTES)
+        buffer.position(TLV_MESSAGE_HEADER_SIZE_BYTES)
         return CapDirectionHeader(
             direction = buffer.int,
             reserved = buffer.int,
@@ -298,13 +313,13 @@ object ExternalNavigationProtocol {
     }
 
     fun readCapStateHeader(payload: ByteArray): CapStateHeader? {
-        val headerSize = MESSAGE_TYPE_SIZE_BYTES + MESSAGE_LENGTH_SIZE_BYTES + Int.SIZE_BYTES * 2
+        val headerSize = TLV_MESSAGE_HEADER_SIZE_BYTES + CAP_STATE_HEADER_SIZE_BYTES
         if (payload.size < headerSize) {
             return null
         }
         val buffer = ByteBuffer.wrap(payload)
             .order(byteOrder)
-        buffer.position(MESSAGE_TYPE_SIZE_BYTES + MESSAGE_LENGTH_SIZE_BYTES)
+        buffer.position(TLV_MESSAGE_HEADER_SIZE_BYTES)
         val stateValue = buffer.int
         val state = CapState.entries.firstOrNull { it.value == stateValue } ?: CapState.UNKNOWN
         return CapStateHeader(
@@ -313,14 +328,31 @@ object ExternalNavigationProtocol {
         )
     }
 
+    fun readDebugLogHeader(payload: ByteArray): DebugLogHeader? {
+        val envelope = decodeMessageEnvelope(payload) ?: return null
+        if (envelope.type != MessageType.DEBUG_LOG) {
+            return null
+        }
+        if (payload.size < envelope.attributesOffset) {
+            return null
+        }
+        val buffer = ByteBuffer.wrap(payload)
+            .order(byteOrder)
+        buffer.position(TLV_MESSAGE_HEADER_SIZE_BYTES)
+        return DebugLogHeader(
+            severity = buffer.int,
+            reserved = buffer.int,
+        )
+    }
+
     fun readAttributes(payload: ByteArray): List<DecodedAttribute> {
-        val headerOffset = MESSAGE_TYPE_SIZE_BYTES + MESSAGE_LENGTH_SIZE_BYTES + Int.SIZE_BYTES * 2
-        if (payload.size < headerOffset) {
+        val envelope = decodeMessageEnvelope(payload) ?: return emptyList()
+        if (payload.size < envelope.totalLength || envelope.totalLength < envelope.attributesOffset) {
             return emptyList()
         }
         val buffer = ByteBuffer.wrap(payload).order(byteOrder)
         val decoded = mutableListOf<DecodedAttribute>()
-        buffer.position(headerOffset)
+        buffer.position(envelope.attributesOffset)
         while (buffer.remaining() >= ATTRIBUTE_TYPE_SIZE_BYTES + ATTRIBUTE_LENGTH_SIZE_BYTES) {
             val type = buffer.short.toInt() and 0xFFFF
             val attributeLength = buffer.short.toInt() and 0xFFFF
@@ -336,6 +368,53 @@ object ExternalNavigationProtocol {
             decoded += DecodedAttribute(type = type, data = attributePayload)
         }
         return decoded
+    }
+
+    private fun decodeMessageEnvelope(payload: ByteArray): DecodedMessageEnvelope? {
+        if (payload.size < TLV_MESSAGE_HEADER_SIZE_BYTES) {
+            return null
+        }
+        val buffer = ByteBuffer.wrap(payload).order(byteOrder)
+        val typeValue = buffer.int
+        val type = MessageType.entries.firstOrNull { it.value == typeValue } ?: return null
+        val totalLength = buffer.int
+        if (totalLength > payload.size || totalLength < TLV_MESSAGE_HEADER_SIZE_BYTES) {
+            return null
+        }
+        val headerSize = messageSpecificHeaderSize(type)
+        val attributesOffset = TLV_MESSAGE_HEADER_SIZE_BYTES + headerSize
+        if (totalLength < attributesOffset) {
+            return null
+        }
+        return DecodedMessageEnvelope(
+            type = type,
+            totalLength = totalLength,
+            attributesOffset = attributesOffset,
+        )
+    }
+
+    private fun messageSpecificHeaderSize(messageType: MessageType): Int {
+        return when (messageType) {
+            MessageType.HANDSHAKE,
+            -> HANDSHAKE_HEADER_SIZE_BYTES
+            MessageType.DESTINATION,
+            -> DESTINATION_HEADER_SIZE_BYTES
+            MessageType.MOVEMENT,
+            -> MOVEMENT_HEADER_SIZE_BYTES
+            MessageType.DESTINATION_REQUEST,
+            -> DESTINATION_REQUEST_HEADER_SIZE_BYTES
+            MessageType.CAP_DIRECTION,
+            -> CAP_DIRECTION_HEADER_SIZE_BYTES
+            MessageType.CAP_DIRECTION_REQUEST_START,
+            MessageType.CAP_DIRECTION_REQUEST_STOP,
+            -> CAP_DIRECTION_REQUEST_HEADER_SIZE_BYTES
+            MessageType.CAP_STATE,
+            -> CAP_STATE_HEADER_SIZE_BYTES
+            MessageType.DEBUG_LOG,
+            -> DEBUG_LOG_HEADER_SIZE_BYTES
+            MessageType.INVALID,
+            -> 0
+        }
     }
 
     fun readUtf8TextAttribute(payload: ByteArray): String? {
