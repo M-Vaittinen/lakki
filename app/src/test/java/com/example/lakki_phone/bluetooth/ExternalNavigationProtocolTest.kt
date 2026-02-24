@@ -120,7 +120,28 @@ class ExternalNavigationProtocolTest {
             ExternalNavigationProtocol.MessageType.DEBUG_LOG,
             ExternalNavigationProtocol.readMessageType(encoded),
         )
+        assertEquals(
+            ExternalNavigationProtocol.DebugLogHeader(severity = 0, reserved = 0),
+            ExternalNavigationProtocol.readDebugLogHeader(encoded),
+        )
         assertEquals("MAG_CAL progress=67%", ExternalNavigationProtocol.readUtf8TextAttribute(encoded))
+    }
+
+    @Test
+    fun debugLogHeaderIsNotTreatedAsAttribute() {
+        val encoded = ExternalNavigationProtocol.buildDebugLogMessage(
+            header = ExternalNavigationProtocol.DebugLogHeader(
+                severity = 0x0001_0018,
+                reserved = 0,
+            ),
+            line = "cap direction: 0 deg",
+        )
+
+        val attributes = ExternalNavigationProtocol.readAttributes(encoded)
+
+        assertEquals(1, attributes.size)
+        assertEquals(ExternalNavigationProtocol.AttributeType.TEXT_UTF8.value, attributes.first().type)
+        assertEquals("cap direction: 0 deg", ExternalNavigationProtocol.readUtf8TextAttribute(encoded))
     }
 
     @Test
